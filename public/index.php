@@ -315,7 +315,7 @@ require 'includes/header.php';
                     <a class="dropdown-item" href="#!">Feedback</a>
                     <div class="dropdown-divider"></div>
                     <a class="dropdown-item" href="pages/user/settings.html">Settings</a>
-                    <a class="dropdown-item" href="pages/authentication/card/logout.html">Logout</a>
+                    <a class="dropdown-item" href="pages/authentication/split/logout.php">Logout</a>
                   </div>
                 </div>
               </li>
@@ -684,7 +684,7 @@ require 'includes/header.php';
                     <a class="dropdown-item" href="#!">Feedback</a>
                     <div class="dropdown-divider"></div>
                     <a class="dropdown-item" href="pages/user/settings.html">Settings</a>
-                    <a class="dropdown-item" href="pages/authentication/card/logout.html">Logout</a>
+                    <a class="dropdown-item" href="pages/authentication/split/logout.php">Logout</a>
                   </div>
                 </div>
               </li>

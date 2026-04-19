@@ -16,6 +16,9 @@ if ($appBasePath === '') {
 }
 
 $appBasePath = '/' . trim($appBasePath, '/');
+
+require_once __DIR__ . '/auth.php';
+ispts_require_authentication($appBasePath);
 ?>
 <!DOCTYPE html>
 <html data-bs-theme="light" lang="en-US" dir="ltr">

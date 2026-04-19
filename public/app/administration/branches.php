@@ -45,9 +45,9 @@ require '../../includes/header.php';
                   <button class="btn btn-link p-0" type="button" data-bs-toggle="tooltip" data-bs-placement="top" title="Edit" aria-label="Edit">
                     <span class="fas fa-edit text-500"></span>
                   </button>
-                  <button class="btn btn-link p-0 ms-2" type="button" data-bs-toggle="tooltip" data-bs-placement="top" title="Off" aria-label="Off">
-                    <span class="fas fa-power-off text-danger"></span>
-                  </button>
+                  <div class="form-check form-switch d-inline-flex ms-2 m-0" data-bs-toggle="tooltip" data-bs-placement="top" title="Toggle Active/Inactive">
+                    <input class="form-check-input" type="checkbox" id="branchStatusToggle1" name="status" value="1" checked>
+                  </div>
                 </td>
                 <td>Head Office</td>
                 <td>Partner A</td>
@@ -62,9 +62,9 @@ require '../../includes/header.php';
                   <button class="btn btn-link p-0" type="button" data-bs-toggle="tooltip" data-bs-placement="top" title="Edit" aria-label="Edit">
                     <span class="fas fa-edit text-500"></span>
                   </button>
-                  <button class="btn btn-link p-0 ms-2" type="button" data-bs-toggle="tooltip" data-bs-placement="top" title="Off" aria-label="Off">
-                    <span class="fas fa-power-off text-danger"></span>
-                  </button>
+                  <div class="form-check form-switch d-inline-flex ms-2 m-0" data-bs-toggle="tooltip" data-bs-placement="top" title="Toggle Active/Inactive">
+                    <input class="form-check-input" type="checkbox" id="branchStatusToggle2" name="status" value="1" checked>
+                  </div>
                 </td>
                 <td>Chittagong Branch</td>
                 <td>Partner B</td>

@@ -126,7 +126,7 @@ $basePath = isset($appBasePath) ? $appBasePath : '';
                     <a class="dropdown-item" href="<?php echo $basePath; ?>/pages/user/profile.html">Profile &amp; account</a>
                     <a class="dropdown-item" href="<?php echo $basePath; ?>/pages/user/settings.html">Settings</a>
                     <div class="dropdown-divider"></div>
-                    <a class="dropdown-item" href="<?php echo $basePath; ?>/pages/authentication/card/logout.html">Logout</a>
+                    <a class="dropdown-item" href="<?php echo $basePath; ?>/pages/authentication/split/logout.php">Logout</a>
                   </div>
                 </div>
               </li>

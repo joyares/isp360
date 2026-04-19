@@ -35,6 +35,7 @@
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/support-desk/ticket-mgmt.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Ticket Mgmt</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/support-desk/card-view.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Card view</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/support-desk/customers.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Customers</span></div></a></li>
+                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/support-desk/customer-registration.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Customer Registration</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/support-desk/customer-details.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Customer details</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/support-desk/tickets-preview.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Tickets preview</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/support-desk/quick-links.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Quick links</span></div></a></li>
@@ -109,9 +110,7 @@
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/branches.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Branches</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/locations.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Locations</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/roles.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Roles</span></div></a></li>
-                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/add-roles.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Add Roles</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/admin-users.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Admin Users</span></div></a></li>
-                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/add-admin-user.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Add Admin User</span></div></a></li>
                   </ul>
                 </li>
                 <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/pages/user/settings.html"><div class="d-flex align-items-center"><span class="nav-link-icon"><span class="fas fa-cog"></span></span><span class="nav-link-text ps-1">Settings</span></div></a></li>
