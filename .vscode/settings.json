@@ -1,0 +1,8 @@
+{
+  "php.validate.executablePath": "D:\\laragon\\bin\\php\\php-8.1.0-Win32-vs16-x64\\php.exe",
+  "php.debug.executablePath": "D:\\laragon\\bin\\php\\php-8.1.0-Win32-vs16-x64\\php.exe",
+  "terminal.integrated.env.windows": {
+    "PATH": "D:\\laragon\\bin\\php\\php-8.1.0-Win32-vs16-x64;${env:PATH}"
+  },
+  "intelephense.environment.phpVersion": "8.1.0"
+}
