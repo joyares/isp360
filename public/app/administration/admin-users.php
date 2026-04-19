@@ -1,153 +1,75 @@
 <?php
 require '../../includes/header.php';
 ?>
-          <nav class="mb-2" aria-label="breadcrumb">
-            <ol class="breadcrumb">
-              <li class="breadcrumb-item"><a href="<?= $appBasePath ?>/index.php">Home</a></li>
-              <li class="breadcrumb-item active">Admin Users</li>
-            </ol>
-          </nav>
-          <div class="page-header mb-4">
-            <div class="row align-items-center">
-              <div class="col-sm">
-                <h1 class="page-header-title">Admin Users</h1>
-              </div>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-body">
-              <h5 class="card-title">Administrator Users</h5>
-              <table class="table">
-                <thead>
-                  <tr>
-                    <th>Action</th>
-                    <th>Name</th>
-                    <th>Username</th>
-                    <th>Status</th>
-                    <th>User Type</th>
-                    <th>Department</th>
-                    <th>SuperAdmin</th>
-                    <th>Roles</th>
-                    <th>Email</th>
-                    <th>Mobile</th>
-                    <th>Last Login Date</th>
-                    <th>Last Login IP</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td><button type="button" class="btn btn-falcon-default btn-sm">Edit</button></td>
-                    <td>Admin User</td>
-                    <td>admin.user</td>
-                    <td><span class="badge bg-success">Active</span></td>
-                    <td>Internal</td>
-                    <td>Administration</td>
-                    <td>Yes</td>
-                    <td>Administrator</td>
-                    <td>admin@company.com</td>
-                    <td>+8801700000000</td>
-                    <td>2026-04-18 09:20 AM</td>
-                    <td>192.168.0.12</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="modal fade" id="addAdminUserModal" tabindex="-1" aria-labelledby="addAdminUserModalLabel" aria-hidden="true">
-            <div class="modal-dialog modal-lg modal-dialog-scrollable">
-              <div class="modal-content">
-                <div class="modal-header">
-                  <h5 class="modal-title" id="addAdminUserModalLabel">Add Admin User</h5>
-                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <form>
-                  <div class="modal-body">
-                    <div class="row g-3">
-                      <div class="col-md-6">
-                        <label class="form-label" for="adminUserName">Name</label>
-                        <input class="form-control" id="adminUserName" type="text" placeholder="Enter full name" />
-                      </div>
-                      <div class="col-md-6">
-                        <label class="form-label" for="adminUsername">Username</label>
-                        <input class="form-control" id="adminUsername" type="text" placeholder="Enter username" />
-                      </div>
-                      <div class="col-md-6">
-                        <label class="form-label" for="adminEmail">Email</label>
-                        <input class="form-control" id="adminEmail" type="email" placeholder="Enter email" />
-                      </div>
-                      <div class="col-md-6">
-                        <label class="form-label" for="adminMobile">Mobile</label>
-                        <input class="form-control" id="adminMobile" type="text" placeholder="Enter mobile number" />
-                      </div>
-                      <div class="col-md-4">
-                        <label class="form-label" for="adminStatus">Status</label>
-                        <select class="form-select" id="adminStatus">
-                          <option selected>Active</option>
-                          <option>Inactive</option>
-                        </select>
-                      </div>
-                      <div class="col-md-4">
-                        <label class="form-label" for="adminUserType">User Type</label>
-                        <select class="form-select" id="adminUserType">
-                          <option selected>Internal</option>
-                          <option>External</option>
-                        </select>
-                      </div>
-                      <div class="col-md-4">
-                        <label class="form-label" for="adminSuperAdmin">SuperAdmin</label>
-                        <select class="form-select" id="adminSuperAdmin">
-                          <option selected>No</option>
-                          <option>Yes</option>
-                        </select>
-                      </div>
-                      <div class="col-md-6">
-                        <label class="form-label" for="adminDepartment">Department</label>
-                        <input class="form-control" id="adminDepartment" type="text" placeholder="Enter department" />
-                      </div>
-                      <div class="col-md-6">
-                        <label class="form-label" for="adminRoles">Roles</label>
-                        <input class="form-control" id="adminRoles" type="text" placeholder="Enter roles" />
-                      </div>
-                    </div>
-                  </div>
-                  <div class="modal-footer">
-                    <button type="button" class="btn btn-falcon-default" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Save Admin User</button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          </div>
-
-          <script>
-            (function () {
-              var openHash = '#add-admin-user';
-              var initModalHashOpener = function () {
-                var modalElement = document.getElementById('addAdminUserModal');
-                if (!modalElement || typeof bootstrap === 'undefined' || !bootstrap.Modal) return;
-
-                var modalInstance = bootstrap.Modal.getOrCreateInstance(modalElement);
-
-                var openFromHash = function () {
-                  if (window.location.hash === openHash) {
-                    modalInstance.show();
-                  }
-                };
-
-                modalElement.addEventListener('hidden.bs.modal', function () {
-                  if (window.location.hash === openHash) {
-                    history.replaceState(null, '', window.location.pathname + window.location.search);
-                  }
-                });
-
-                window.addEventListener('hashchange', openFromHash);
-                openFromHash();
-              };
-
-              window.addEventListener('load', initModalHashOpener);
-            })();
-          </script>
+<nav class="mb-2" aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="<?= $appBasePath ?>/index.php">Home</a></li>
+    <li class="breadcrumb-item"><a href="#">Administration</a></li>
+    <li class="breadcrumb-item active">Admin Users</li>
+  </ol>
+</nav>
+<div class="page-header mb-3">
+  <div class="row align-items-center">
+    <div class="col">
+      <h1 class="page-header-title">Admin Users</h1>
+    </div>
+    <div class="col-auto">
+      <a href="<?= $appBasePath ?>/app/administration/add-admin-user.php" class="btn btn-primary btn-sm">
+        <span class="fas fa-plus me-1"></span>Add Admin User
+      </a>
+    </div>
+  </div>
+</div>
+<div class="card">
+  <div class="card-header border-bottom border-200">
+    <h5 class="mb-0">Admin User List</h5>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive scrollbar">
+      <table class="table table-sm table-striped fs-10 mb-0">
+        <thead class="bg-body-tertiary">
+          <tr>
+            <th class="text-800">Action</th>
+            <th class="text-800">Name</th>
+            <th class="text-800">Username</th>
+            <th class="text-800">Status</th>
+            <th class="text-800">User Type</th>
+            <th class="text-800">Department</th>
+            <th class="text-800">SuperAdmin</th>
+            <th class="text-800">Roles</th>
+            <th class="text-800">Email</th>
+            <th class="text-800">Mobile</th>
+            <th class="text-800">Last Login Date</th>
+            <th class="text-800">Last Login IP</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <button class="btn btn-link p-0" type="button" data-bs-toggle="tooltip" data-bs-placement="top" title="Edit" aria-label="Edit" onclick="window.location.href='<?= $appBasePath ?>/app/administration/add-admin-user.php?id=1'">
+                <span class="fas fa-edit text-500"></span>
+              </button>
+              <button class="btn btn-link p-0 ms-2" type="button" data-bs-toggle="tooltip" data-bs-placement="top" title="Off" aria-label="Off">
+                <span class="fas fa-power-off text-danger"></span>
+              </button>
+            </td>
+            <td>Mostafa Joy</td>
+            <td>mostafa.joy</td>
+            <td><span class="badge badge-subtle-success">Active</span></td>
+            <td>Internal</td>
+            <td>Administration</td>
+            <td><span class="badge badge-subtle-primary">Yes</span></td>
+            <td>Administrator</td>
+            <td>admin@isp360.com</td>
+            <td>+8801700000000</td>
+            <td>2026-04-18 09:20 AM</td>
+            <td>192.168.0.12</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
 <?php
 require '../../includes/footer.php';
 ?>

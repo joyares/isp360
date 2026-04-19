@@ -109,8 +109,9 @@
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/branches.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Branches</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/locations.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Locations</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/roles.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Roles</span></div></a></li>
+                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/add-roles.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Add Roles</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/admin-users.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Admin Users</span></div></a></li>
-                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/admin-users.php#add-admin-user"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Add Admin User</span></div></a></li>
+                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/add-admin-user.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Add Admin User</span></div></a></li>
                   </ul>
                 </li>
                 <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/pages/user/settings.html"><div class="d-flex align-items-center"><span class="nav-link-icon"><span class="fas fa-cog"></span></span><span class="nav-link-text ps-1">Settings</span></div></a></li>
