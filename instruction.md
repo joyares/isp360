@@ -45,6 +45,7 @@
 ## 5. UI & Navigation Standards
 
 - Breadcrumbs: MUST render on every page in format: `Menu > Sub Menu > Current Page Name (active link)`.
+- Flash Notifications: Page-level save/update success or error alerts MUST render in the top navbar on desktop, immediately to the right of the global search box. Do not leave duplicate inline page alerts when the shared topnav notification is shown.
 - Pagination:
 	- Required for all data tables.
 	- User selection options: 10, 20, 50 rows per page.

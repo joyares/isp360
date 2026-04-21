@@ -1,5 +1,13 @@
 <?php
 $basePath = isset($appBasePath) ? $appBasePath : '';
+$topnavAlert = null;
+
+if (isset($alert) && is_array($alert) && isset($alert['type'], $alert['message'])) {
+  $topnavAlert = [
+    'type' => (string) $alert['type'],
+    'message' => trim((string) $alert['message']),
+  ];
+}
 ?>
         <div class="content">
           <script>
@@ -24,6 +32,15 @@ $basePath = isset($appBasePath) ? $appBasePath : '';
                 </div>
               </li>
             </ul>
+            <?php if ($topnavAlert !== null && $topnavAlert['message'] !== ''): ?>
+            <ul class="navbar-nav align-items-center d-none d-lg-flex ms-3">
+              <li class="nav-item">
+                <div class="alert alert-<?= htmlspecialchars($topnavAlert['type']) ?> py-2 px-3 mb-0" role="alert" data-topnav-flash="true" data-alert-message="<?= htmlspecialchars($topnavAlert['message']) ?>">
+                  <?= htmlspecialchars($topnavAlert['message']) ?>
+                </div>
+              </li>
+            </ul>
+            <?php endif; ?>
             <ul class="navbar-nav navbar-nav-icons ms-auto flex-row align-items-center">
               <li class="nav-item ps-2 pe-0">
                 <div class="dropdown theme-control-dropdown"><a class="nav-link d-flex align-items-center dropdown-toggle fa-icon-wait fs-9 pe-1 py-0" href="#" role="button" id="themeSwitchDropdown" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false"><span class="fas fa-sun fs-7" data-fa-transform="shrink-2" data-theme-dropdown-toggle-icon="light"></span><span class="fas fa-moon fs-7" data-fa-transform="shrink-3" data-theme-dropdown-toggle-icon="dark"></span></a>
@@ -158,4 +175,25 @@ $basePath = isset($appBasePath) ? $appBasePath : '';
             });
 
             syncThemeControls(localStorage.getItem('theme') === 'dark' ? 'dark' : 'light');
+
+            document.addEventListener('DOMContentLoaded', function () {
+              var topnavFlash = document.querySelector('[data-topnav-flash="true"]');
+
+              if (!topnavFlash) {
+                return;
+              }
+
+              var flashMessage = (topnavFlash.getAttribute('data-alert-message') || '').trim();
+              var contentAlerts = document.querySelectorAll('.content .alert[role="alert"]');
+
+              contentAlerts.forEach(function (item) {
+                if (item === topnavFlash) {
+                  return;
+                }
+
+                if (flashMessage !== '' && item.textContent.trim() === flashMessage) {
+                  item.remove();
+                }
+              });
+            });
           </script>
