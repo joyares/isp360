@@ -46,6 +46,25 @@ $pdo->exec(
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
 );
 
+  $ispts_has_column = static function (\PDO $pdo, string $table, string $column): bool {
+    $stmt = $pdo->prepare(
+      'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column'
+    );
+    $stmt->bindValue(':table', $table);
+    $stmt->bindValue(':column', $column);
+    $stmt->execute();
+
+    return (int) $stmt->fetchColumn() > 0;
+  };
+
+  if (!$ispts_has_column($pdo, 'support_ticket_statuses', 'color')) {
+    $pdo->exec("ALTER TABLE support_ticket_statuses ADD COLUMN color VARCHAR(30) NOT NULL DEFAULT 'secondary' AFTER status_name");
+  }
+
+  if (!$ispts_has_column($pdo, 'support_ticket_priorities', 'color')) {
+    $pdo->exec("ALTER TABLE support_ticket_priorities ADD COLUMN color VARCHAR(30) NOT NULL DEFAULT 'secondary' AFTER priority_name");
+  }
+
 $categoryCount = (int) $pdo->query('SELECT COUNT(*) FROM support_ticket_categories')->fetchColumn();
 if ($categoryCount === 0) {
     $pdo->exec(

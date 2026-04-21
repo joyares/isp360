@@ -223,6 +223,17 @@ if (!function_exists('ispts_can_manage_customers')) {
 if (!function_exists('ispts_ensure_customers_table')) {
     function ispts_ensure_customers_table(PDO $pdo): void
     {
+        $hasColumn = static function (PDO $pdo, string $table, string $column): bool {
+            $stmt = $pdo->prepare(
+                'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column'
+            );
+            $stmt->bindValue(':table', $table);
+            $stmt->bindValue(':column', $column);
+            $stmt->execute();
+
+            return (int) $stmt->fetchColumn() > 0;
+        };
+
         $pdo->exec(
             "CREATE TABLE IF NOT EXISTS customers (
                 customer_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -255,5 +266,27 @@ if (!function_exists('ispts_ensure_customers_table')) {
                 KEY idx_customers_status (status)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
         );
+
+        $legacySafeColumns = [
+            'registered_date' => "ALTER TABLE customers ADD COLUMN registered_date DATE NULL",
+            'area' => "ALTER TABLE customers ADD COLUMN area VARCHAR(120) NULL",
+            'sub_area' => "ALTER TABLE customers ADD COLUMN sub_area VARCHAR(120) NULL",
+            'package_id' => "ALTER TABLE customers ADD COLUMN package_id VARCHAR(100) NULL",
+            'package_activate_date' => "ALTER TABLE customers ADD COLUMN package_activate_date DATE NULL",
+            'package_expire_date' => "ALTER TABLE customers ADD COLUMN package_expire_date DATE NULL",
+            'deposit_money' => "ALTER TABLE customers ADD COLUMN deposit_money DECIMAL(12,2) NOT NULL DEFAULT 0",
+            'connection_charge' => "ALTER TABLE customers ADD COLUMN connection_charge DECIMAL(12,2) NOT NULL DEFAULT 0",
+            'branch' => "ALTER TABLE customers ADD COLUMN branch VARCHAR(120) NULL",
+            'status' => "ALTER TABLE customers ADD COLUMN status TINYINT(1) NOT NULL DEFAULT 1",
+        ];
+
+        foreach ($legacySafeColumns as $column => $sql) {
+            if (!$hasColumn($pdo, 'customers', $column)) {
+                $pdo->exec($sql);
+            }
+        }
+
+        // Backfill null legacy rows so list queries remain stable.
+        $pdo->exec('UPDATE customers SET registered_date = CURDATE() WHERE registered_date IS NULL');
     }
 }

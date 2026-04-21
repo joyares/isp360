@@ -42,6 +42,62 @@ $pdo->exec(
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
 );
 
+  $ispts_has_column = static function (\PDO $pdo, string $table, string $column): bool {
+    $stmt = $pdo->prepare(
+      'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column'
+    );
+    $stmt->bindValue(':table', $table);
+    $stmt->bindValue(':column', $column);
+    $stmt->execute();
+
+    return (int) $stmt->fetchColumn() > 0;
+  };
+
+  $legacySafeColumns = [
+    'username' => "ALTER TABLE partners ADD COLUMN username VARCHAR(90) NULL",
+    'password' => "ALTER TABLE partners ADD COLUMN password VARCHAR(160) NULL",
+    'firstname' => "ALTER TABLE partners ADD COLUMN firstname VARCHAR(200) NULL",
+    'lastname' => "ALTER TABLE partners ADD COLUMN lastname VARCHAR(200) NULL",
+    'email' => "ALTER TABLE partners ADD COLUMN email VARCHAR(300) NULL",
+    'phone' => "ALTER TABLE partners ADD COLUMN phone VARCHAR(200) NULL",
+    'company' => "ALTER TABLE partners ADD COLUMN company VARCHAR(200) NULL",
+    'address' => "ALTER TABLE partners ADD COLUMN address VARCHAR(500) NULL",
+    'notes' => "ALTER TABLE partners ADD COLUMN notes MEDIUMTEXT NULL",
+    'enabled' => "ALTER TABLE partners ADD COLUMN enabled TINYINT(1) NOT NULL DEFAULT 1",
+    'user_type' => "ALTER TABLE partners ADD COLUMN user_type INT NOT NULL DEFAULT 1",
+    'branch_access_type' => "ALTER TABLE partners ADD COLUMN branch_access_type VARCHAR(255) NOT NULL DEFAULT '0'",
+    'partner_access_type' => "ALTER TABLE partners ADD COLUMN partner_access_type VARCHAR(255) NOT NULL DEFAULT '0'",
+    'parentId' => "ALTER TABLE partners ADD COLUMN parentId INT NOT NULL DEFAULT 0",
+    'partnerId' => "ALTER TABLE partners ADD COLUMN partnerId INT NOT NULL DEFAULT 0",
+    'departmentId' => "ALTER TABLE partners ADD COLUMN departmentId INT NOT NULL DEFAULT 0",
+    'roleId' => "ALTER TABLE partners ADD COLUMN roleId INT NOT NULL DEFAULT 0",
+    'deleted_at' => "ALTER TABLE partners ADD COLUMN deleted_at DATETIME NULL DEFAULT NULL",
+    'created_by' => "ALTER TABLE partners ADD COLUMN created_by INT NULL",
+    'updated_by' => "ALTER TABLE partners ADD COLUMN updated_by INT NULL",
+    'last_login' => "ALTER TABLE partners ADD COLUMN last_login TIMESTAMP NULL DEFAULT NULL",
+  ];
+
+  foreach ($legacySafeColumns as $column => $sql) {
+    if (!$ispts_has_column($pdo, 'partners', $column)) {
+      $pdo->exec($sql);
+    }
+  }
+
+  if ($ispts_has_column($pdo, 'partners', 'first_name') && $ispts_has_column($pdo, 'partners', 'firstname')) {
+    $pdo->exec('UPDATE partners SET firstname = COALESCE(NULLIF(firstname, \"\"), first_name)');
+  }
+
+  if ($ispts_has_column($pdo, 'partners', 'last_name') && $ispts_has_column($pdo, 'partners', 'lastname')) {
+    $pdo->exec('UPDATE partners SET lastname = COALESCE(NULLIF(lastname, \"\"), last_name)');
+  }
+
+  $partnerIdColumn = $ispts_has_column($pdo, 'partners', 'id') ? 'id' : ($ispts_has_column($pdo, 'partners', 'partner_id') ? 'partner_id' : 'id');
+  $partnerDeletedCondition = $ispts_has_column($pdo, 'partners', 'deleted_at') ? 'deleted_at IS NULL' : '1=1';
+  $partnerDeletedConditionAliased = $ispts_has_column($pdo, 'partners', 'deleted_at') ? 'p.deleted_at IS NULL' : '1=1';
+  $partnerEnabledColumn = $ispts_has_column($pdo, 'partners', 'enabled') ? 'enabled' : ($ispts_has_column($pdo, 'partners', 'status') ? 'status' : 'enabled');
+  $partnerRoleColumn = $ispts_has_column($pdo, 'partners', 'roleId') ? 'roleId' : ($ispts_has_column($pdo, 'partners', 'role_id') ? 'role_id' : 'roleId');
+  $partnerParentColumn = $ispts_has_column($pdo, 'partners', 'parentId') ? 'parentId' : ($ispts_has_column($pdo, 'partners', 'parent_id') ? 'parent_id' : 'parentId');
+
 $alert       = null;
 $editId      = isset($_GET['edit_id']) ? (int) $_GET['edit_id'] : 0;
 $currentPath = $_SERVER['PHP_SELF'] ?? '/app/partners/partner-list.php';
@@ -110,7 +166,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($passwordHash !== null) {
                     $updateSql .= ', password = :password';
                 }
-                $updateSql .= ' WHERE id = :id AND deleted_at IS NULL';
+                $updateSql .= ' WHERE ' . $partnerIdColumn . ' = :id AND ' . $partnerDeletedCondition;
 
                 $updateStmt = $pdo->prepare($updateSql);
                 $updateStmt->bindValue(':firstname',           $firstname !== '' ? $firstname : null);
@@ -205,7 +261,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($toggleId > 0) {
             $toggleStmt = $pdo->prepare(
-                'UPDATE partners SET enabled = :enabled WHERE id = :id AND deleted_at IS NULL'
+              'UPDATE partners SET ' . $partnerEnabledColumn . ' = :enabled WHERE ' . $partnerIdColumn . ' = :id AND ' . $partnerDeletedCondition
             );
             $toggleStmt->bindValue(':enabled', $targetEnabled, \PDO::PARAM_INT);
             $toggleStmt->bindValue(':id', $toggleId, \PDO::PARAM_INT);
@@ -232,11 +288,11 @@ if ($alert === null) {
 // ── Load edit row ────────────────────────────────────────────────────────────
 if ($editId > 0) {
     $editStmt = $pdo->prepare(
-        'SELECT id, firstname, lastname, username, email, phone, company, address, notes,
+      'SELECT ' . $partnerIdColumn . ' AS id, firstname, lastname, username, email, phone, company, address, notes,
                 user_type, branch_access_type, partner_access_type, parentId, partnerId,
                 departmentId, roleId, enabled
          FROM partners
-         WHERE id = :id AND deleted_at IS NULL
+       WHERE ' . $partnerIdColumn . ' = :id AND ' . $partnerDeletedCondition . '
          LIMIT 1'
     );
     $editStmt->bindValue(':id', $editId, \PDO::PARAM_INT);
@@ -268,11 +324,11 @@ if ($editId > 0) {
 
 // ── Lookups ──────────────────────────────────────────────────────────────────
 $activePartnersStmt = $pdo->prepare(
-    'SELECT id, firstname, lastname, username, company
+  'SELECT ' . $partnerIdColumn . ' AS id, firstname, lastname, username, company
      FROM partners
-     WHERE enabled = 1 AND deleted_at IS NULL'
-    . ($formData['id'] > 0 ? ' AND id != :self_id' : '')
-    . ' ORDER BY id ASC'
+   WHERE ' . $partnerEnabledColumn . ' = 1 AND ' . $partnerDeletedCondition
+  . ($formData['id'] > 0 ? ' AND ' . $partnerIdColumn . ' != :self_id' : '')
+  . ' ORDER BY ' . $partnerIdColumn . ' ASC'
 );
 if ($formData['id'] > 0) {
     $activePartnersStmt->bindValue(':self_id', $formData['id'], \PDO::PARAM_INT);
@@ -286,15 +342,15 @@ $activeRolesStmt = $pdo->query(
 $activeRoles = $activeRolesStmt->fetchAll(\PDO::FETCH_ASSOC);
 
 $partnersStmt = $pdo->query(
-    'SELECT p.id, p.firstname, p.lastname, p.username, p.email, p.phone,
-            p.company, p.enabled, p.user_type, p.last_login, p.created_at,
+  'SELECT p.' . $partnerIdColumn . ' AS id, p.firstname, p.lastname, p.username, p.email, p.phone,
+      p.company, p.' . $partnerEnabledColumn . ' AS enabled, p.user_type, p.last_login, p.created_at,
             r.role_name,
             pp.username AS parent_username
      FROM partners p
-     LEFT JOIN roles    r  ON r.role_id  = p.roleId
-     LEFT JOIN partners pp ON pp.id      = p.parentId
-     WHERE p.deleted_at IS NULL
-     ORDER BY p.id DESC'
+   LEFT JOIN roles    r  ON r.role_id  = p.' . $partnerRoleColumn . '
+   LEFT JOIN partners pp ON pp.' . $partnerIdColumn . ' = p.' . $partnerParentColumn . '
+  WHERE ' . $partnerDeletedConditionAliased . '
+   ORDER BY p.' . $partnerIdColumn . ' DESC'
 );
 $partners = $partnersStmt->fetchAll(\PDO::FETCH_ASSOC);
 
