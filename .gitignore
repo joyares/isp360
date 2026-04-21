@@ -1,0 +1,19 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.vscode/*.code-workspace
+.DS_Store
+Thumbs.db
+
+# Runtime artifacts
+*.log
+logs/
+public/assets/uploads/*
+!public/assets/uploads/.gitkeep
+
+# Temporary files
+*.tmp
+*.bak

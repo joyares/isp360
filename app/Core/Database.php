@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Core;
 
+require_once __DIR__ . '/Env.php';
+
 use PDO;
 use PDOException;
 use RuntimeException;
@@ -14,6 +16,8 @@ class Database
 
     public static function getConnection(): PDO
     {
+        Env::ispts_load(dirname(__DIR__, 2));
+
         if (self::$connection instanceof PDO) {
             return self::$connection;
         }
