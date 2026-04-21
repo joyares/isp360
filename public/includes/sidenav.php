@@ -34,12 +34,19 @@
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/support-desk/add-ticket.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Add Ticket</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/support-desk/ticket-mgmt.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Ticket Mgmt</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/support-desk/card-view.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Card view</span></div></a></li>
-                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/support-desk/customers.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Customers</span></div></a></li>
-                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/support-desk/customer-registration.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Customer Registration</span></div></a></li>
-                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/support-desk/customer-details.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Customer details</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/support-desk/tickets-preview.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Tickets preview</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/support-desk/quick-links.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Quick links</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/support-desk/reports.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Reports</span></div></a></li>
+                  </ul>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link dropdown-indicator collapsed" href="#customer" role="button" data-bs-toggle="collapse" aria-expanded="false" aria-controls="customer">
+                    <div class="d-flex align-items-center"><span class="nav-link-icon"><span class="fas fa-users"></span></span><span class="nav-link-text ps-1">Customer</span></div>
+                  </a>
+                  <ul class="nav collapse" id="customer">
+                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/support-desk/customers.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Customers</span></div></a></li>
+                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/support-desk/customer-registration.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Customer Registration</span></div></a></li>
+                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/support-desk/customer-details.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Customer details</span></div></a></li>
                   </ul>
                 </li>
                 <li class="nav-item">
