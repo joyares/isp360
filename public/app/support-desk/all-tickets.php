@@ -8,45 +8,6 @@ use App\Core\Database;
 
 $pdo = Database::getConnection();
 
-$pdo->exec(
-    "CREATE TABLE IF NOT EXISTS support_tickets (
-        ticket_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        ticket_no VARCHAR(40) NOT NULL,
-        ticket_for VARCHAR(40) NOT NULL DEFAULT 'existing_customer',
-        customer_id BIGINT UNSIGNED NULL,
-        issue_details TEXT NOT NULL,
-        category_id BIGINT UNSIGNED NULL,
-        priority_id BIGINT UNSIGNED NULL,
-        ticket_status_id BIGINT UNSIGNED NULL,
-        assigned_employee_id BIGINT UNSIGNED NULL,
-        status TINYINT(1) NOT NULL DEFAULT 1,
-        created_by BIGINT UNSIGNED NULL,
-        updated_by BIGINT UNSIGNED NULL,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        UNIQUE KEY uk_support_tickets_ticket_no (ticket_no),
-        KEY idx_support_tickets_status (status),
-        KEY idx_support_tickets_ticket_status (ticket_status_id),
-        KEY idx_support_tickets_priority (priority_id),
-        KEY idx_support_tickets_assigned (assigned_employee_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
-);
-
-$pdo->exec(
-    "CREATE TABLE IF NOT EXISTS support_ticket_notes (
-        ticket_note_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        ticket_id BIGINT UNSIGNED NOT NULL,
-        note_text TEXT NOT NULL,
-        created_by BIGINT UNSIGNED NULL,
-        status TINYINT(1) NOT NULL DEFAULT 1,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        KEY idx_support_ticket_notes_ticket (ticket_id),
-        KEY idx_support_ticket_notes_status (status),
-        KEY idx_support_ticket_notes_creator (created_by)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
-);
-
 $alert = null;
 $currentPath = $_SERVER['PHP_SELF'] ?? '/app/support-desk/all-tickets.php';
 
