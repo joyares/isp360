@@ -16,6 +16,9 @@ if ($appBasePath === '') {
 }
 
 $appBasePath = '/' . trim($appBasePath, '/');
+if ($appBasePath === '/') {
+  $appBasePath = '';
+}
 
 require_once __DIR__ . '/auth.php';
 ispts_require_authentication($appBasePath);

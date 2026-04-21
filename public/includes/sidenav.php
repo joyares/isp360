@@ -1,5 +1,8 @@
       <?php
-      $navBasePath = isset($appBasePath) ? $appBasePath : '';
+      $navBasePath = isset($appBasePath) ? (string) $appBasePath : '';
+      if ($navBasePath === '/') {
+        $navBasePath = '';
+      }
       ?>
         <nav class="navbar navbar-light navbar-vertical navbar-expand-xl">
           <script>

@@ -13,7 +13,12 @@
     <!-- ===============================================--><!--    End of Main Content--><!-- ===============================================-->
 
     <!-- ===============================================--><!--    JavaScripts--><!-- ===============================================-->
-    <?php $appPathPrefix = isset($appBasePath) ? $appBasePath : ''; ?>
+    <?php
+    $appPathPrefix = isset($appBasePath) ? (string) $appBasePath : '';
+    if ($appPathPrefix === '/') {
+      $appPathPrefix = '';
+    }
+    ?>
     <script src="<?= $appPathPrefix ?>/vendors/popper/popper.min.js"></script>
     <script src="<?= $appPathPrefix ?>/vendors/bootstrap/bootstrap.min.js"></script>
     <script src="<?= $appPathPrefix ?>/vendors/anchorjs/anchor.min.js"></script>

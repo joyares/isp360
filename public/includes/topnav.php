@@ -1,5 +1,8 @@
 <?php
-$basePath = isset($appBasePath) ? $appBasePath : '';
+$basePath = isset($appBasePath) ? (string) $appBasePath : '';
+if ($basePath === '/') {
+  $basePath = '';
+}
 $topnavAlert = null;
 
 if (isset($alert) && is_array($alert) && isset($alert['type'], $alert['message'])) {
