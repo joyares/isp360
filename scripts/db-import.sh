@@ -66,7 +66,8 @@ if [[ -n "$db_pass" ]]; then
   args+=("--password=$db_pass")
 fi
 
-"$mysql_bin" "${args[@]}" -e "DROP DATABASE IF EXISTS \\`$db_name\\`; CREATE DATABASE \\`$db_name\\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+ddl_sql="DROP DATABASE IF EXISTS \`$db_name\`; CREATE DATABASE \`$db_name\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+"$mysql_bin" "${args[@]}" -e "$ddl_sql"
 
 if [[ "$dump_path" == *.gz ]]; then
   gzip -dc "$dump_path" | "$mysql_bin" "${args[@]}"
