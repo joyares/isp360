@@ -7,7 +7,12 @@ if [ "$ISP360_SKIP_DB_IMPORT" = "1" ]; then
   exit 0
 fi
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/db-import.ps1
+if command -v powershell.exe >/dev/null 2>&1; then
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/db-import.ps1
+else
+  sh scripts/db-import.sh
+fi
+
 if [ $? -ne 0 ]; then
   echo "DB import failed after merge."
   exit 1
