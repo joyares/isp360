@@ -1,0 +1,19 @@
+#!/bin/sh
+
+# Export database before each push.
+# If dump changes, stage it and stop push so the next push includes it.
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/db-dump.ps1
+if [ $? -ne 0 ]; then
+  echo "DB dump failed; push aborted."
+  exit 1
+fi
+
+git add database/snapshots/isp360-data.sql.gz >/dev/null 2>&1
+
+if ! git diff --cached --quiet -- database/snapshots/isp360-data.sql.gz; then
+  echo "Database dump updated and staged. Commit it, then push again."
+  exit 1
+fi
+
+exit 0

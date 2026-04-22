@@ -268,15 +268,29 @@ if (!function_exists('ispts_ensure_customers_table')) {
         );
 
         $legacySafeColumns = [
+            'username' => "ALTER TABLE customers ADD COLUMN username VARCHAR(120) NOT NULL DEFAULT ''",
+            'phone_no' => "ALTER TABLE customers ADD COLUMN phone_no VARCHAR(30) NOT NULL DEFAULT ''",
             'registered_date' => "ALTER TABLE customers ADD COLUMN registered_date DATE NULL",
+            'address' => "ALTER TABLE customers ADD COLUMN address TEXT NULL",
             'area' => "ALTER TABLE customers ADD COLUMN area VARCHAR(120) NULL",
             'sub_area' => "ALTER TABLE customers ADD COLUMN sub_area VARCHAR(120) NULL",
             'package_id' => "ALTER TABLE customers ADD COLUMN package_id VARCHAR(100) NULL",
             'package_activate_date' => "ALTER TABLE customers ADD COLUMN package_activate_date DATE NULL",
             'package_expire_date' => "ALTER TABLE customers ADD COLUMN package_expire_date DATE NULL",
+            'nid_other_documents' => "ALTER TABLE customers ADD COLUMN nid_other_documents TEXT NULL",
             'deposit_money' => "ALTER TABLE customers ADD COLUMN deposit_money DECIMAL(12,2) NOT NULL DEFAULT 0",
             'connection_charge' => "ALTER TABLE customers ADD COLUMN connection_charge DECIMAL(12,2) NOT NULL DEFAULT 0",
+            'assigned_devices' => "ALTER TABLE customers ADD COLUMN assigned_devices TEXT NULL",
+            'support_ticket' => "ALTER TABLE customers ADD COLUMN support_ticket TEXT NULL",
+            'documents' => "ALTER TABLE customers ADD COLUMN documents TEXT NULL",
+            'payment' => "ALTER TABLE customers ADD COLUMN payment TEXT NULL",
+            'invoices' => "ALTER TABLE customers ADD COLUMN invoices TEXT NULL",
+            'notes' => "ALTER TABLE customers ADD COLUMN notes TEXT NULL",
             'branch' => "ALTER TABLE customers ADD COLUMN branch VARCHAR(120) NULL",
+            'created_by' => "ALTER TABLE customers ADD COLUMN created_by BIGINT UNSIGNED NULL",
+            'updated_by' => "ALTER TABLE customers ADD COLUMN updated_by BIGINT UNSIGNED NULL",
+            'created_at' => "ALTER TABLE customers ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+            'updated_at' => "ALTER TABLE customers ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
             'status' => "ALTER TABLE customers ADD COLUMN status TINYINT(1) NOT NULL DEFAULT 1",
         ];
 

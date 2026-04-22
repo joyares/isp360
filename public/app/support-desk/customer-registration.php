@@ -61,6 +61,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $formData[$key] = trim((string) ($_POST[$key] ?? ''));
     }
 
+  $legacyFullName = $formData['username'] !== '' ? $formData['username'] : 'Customer';
+  $legacyMobile = $formData['phone_no'] !== '' ? $formData['phone_no'] : 'N/A';
+
     if (!$canManageCustomers) {
       $alert = ['type' => 'danger', 'message' => 'You do not have permission to register or update customers.'];
     } elseif ($formData['username'] === '' || $formData['phone_no'] === '' || $formData['registered_date'] === '') {
@@ -71,6 +74,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'UPDATE customers SET
                     username = :username,
                     phone_no = :phone_no,
+                  full_name = :full_name,
+                  mobile = :mobile,
                     registered_date = :registered_date,
                     address = :address,
                     area = :area,
@@ -100,6 +105,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'INSERT INTO customers (
                     username,
                     phone_no,
+                  full_name,
+                  mobile,
                     registered_date,
                     address,
                     area,
@@ -123,6 +130,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                  ) VALUES (
                     :username,
                     :phone_no,
+                    :full_name,
+                    :mobile,
                     :registered_date,
                     :address,
                     :area,
@@ -153,6 +162,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $stmt->bindValue(':username', $formData['username']);
         $stmt->bindValue(':phone_no', $formData['phone_no']);
+        $stmt->bindValue(':full_name', $legacyFullName);
+        $stmt->bindValue(':mobile', $legacyMobile);
         $stmt->bindValue(':registered_date', $formData['registered_date']);
         $stmt->bindValue(':address', $formData['address'] !== '' ? $formData['address'] : null);
         $stmt->bindValue(':area', $formData['area'] !== '' ? $formData['area'] : null);

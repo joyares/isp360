@@ -1,0 +1,16 @@
+#!/bin/sh
+
+# Import database after pull/merge by replacing existing database.
+
+if [ "$ISP360_SKIP_DB_IMPORT" = "1" ]; then
+  echo "ISP360_SKIP_DB_IMPORT=1 set; skipping DB import."
+  exit 0
+fi
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/db-import.ps1
+if [ $? -ne 0 ]; then
+  echo "DB import failed after merge."
+  exit 1
+fi
+
+exit 0

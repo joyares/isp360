@@ -5,7 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../includes/auth.php';
 
 $documentRootPath = isset($_SERVER['DOCUMENT_ROOT']) ? realpath($_SERVER['DOCUMENT_ROOT']) : false;
-$projectRootPath = realpath(dirname(__DIR__, 3));
+$projectRootPath = realpath(dirname(__DIR__, 4));
 
 $appBasePath = '';
 if ($documentRootPath && $projectRootPath) {
