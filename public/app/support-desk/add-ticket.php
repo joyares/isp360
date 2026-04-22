@@ -267,7 +267,9 @@ require '../../includes/header.php';
               <div class="card-body position-relative">
                 <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
                   <h6 class="mb-0">Customer<span class="badge badge-subtle-info rounded-pill ms-2">Active</span></h6>
-                  <a class="fw-semi-bold fs-10 text-nowrap" href="#" id="view-customer-link">View Customer<span class="fas fa-angle-right ms-1"></span></a>
+                  <a class="btn btn-link p-0 text-primary" href="#" id="view-customer-link" data-bs-toggle="tooltip" data-bs-placement="top" title="View Customer" aria-label="View Customer">
+                    <span class="fas fa-eye fs-9"></span>
+                  </a>
                 </div>
 
                 <div class="d-flex align-items-center flex-wrap gap-3 mb-1" id="customer-preview-inline">

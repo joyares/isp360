@@ -197,37 +197,6 @@
           if (oldInlineBreadcrumb) {
             oldInlineBreadcrumb.remove();
           }
-        } else {
-          var header = document.createElement('div');
-          header.className = 'card-header border-bottom border-200 d-flex flex-wrap justify-content-between align-items-start gap-3';
-
-          var titleBlock = document.createElement('div');
-          titleBlock.className = 'd-flex flex-column';
-
-          var title = document.createElement('h5');
-          title.className = 'mb-0';
-          title.textContent = pageTitle;
-          titleBlock.appendChild(title);
-
-          var actionWrap = document.createElement('div');
-          actionWrap.className = 'd-flex flex-wrap gap-2';
-
-          actions.forEach(function (action, index) {
-            var btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = index === 0 ? 'btn btn-primary btn-sm' : 'btn btn-falcon-default btn-sm';
-            btn.innerHTML = '<span class="' + action.icon + ' me-1"></span>' + action.label;
-            actionWrap.appendChild(btn);
-          });
-
-          header.appendChild(titleBlock);
-          header.appendChild(actionWrap);
-          card.insertBefore(header, card.firstChild);
-
-          var bodyTitle = card.querySelector('.card-body .card-title');
-          if (bodyTitle) {
-            bodyTitle.remove();
-          }
         }
 
         var pageFooter = content.querySelector('footer.footer');
@@ -272,79 +241,7 @@
           }
         }
 
-        var headerTitle = header.querySelector('h5');
-        var actionWrap = header.querySelector('.d-flex.flex-wrap.gap-2');
-        header.className = 'card-header border-bottom border-200 px-0';
-
-        var headerLayout = document.createElement('div');
-        headerLayout.className = 'd-lg-flex justify-content-between';
-
-        var leftGroup = document.createElement('div');
-        leftGroup.className = 'row flex-between-center gy-2 px-x1';
-
-        var titleCol = document.createElement('div');
-        titleCol.className = 'col-auto pe-0';
-        if (headerTitle) {
-          headerTitle.className = 'mb-0';
-          headerTitle.tagName;
-          titleCol.appendChild(headerTitle);
-        }
-
-        var searchCol = document.createElement('div');
-        searchCol.className = 'col-auto';
-        searchCol.innerHTML = '<form><div class="input-group input-search-width"><input class="form-control form-control-sm shadow-none generated-table-search" type="search" placeholder="Search" aria-label="search"><button class="btn btn-sm btn-outline-secondary border-300 hover-border-secondary" type="button"><span class="fa fa-search fs-10"></span></button></div></form>';
-
-        leftGroup.appendChild(titleCol);
-        leftGroup.appendChild(searchCol);
-
-        var divider = document.createElement('div');
-        divider.className = 'border-bottom border-200 my-3';
-
-        var rightGroup = document.createElement('div');
-        rightGroup.className = 'd-flex align-items-center justify-content-between justify-content-lg-end px-x1';
-
-        var controlWrap = document.createElement('div');
-        controlWrap.className = 'd-flex align-items-center';
-
-        var viewDropdown = document.createElement('div');
-        viewDropdown.className = 'dropdown';
-        viewDropdown.innerHTML = '<button class="btn btn-sm btn-falcon-default dropdown-toggle dropdown-caret-none" type="button" data-bs-toggle="dropdown" data-boundary="window" aria-expanded="false"><span class="d-none d-sm-inline-block d-xl-none d-xxl-inline-block me-1">Table View</span><span class="fas fa-chevron-down" data-fa-transform="shrink-3 down-1"></span></button><div class="dropdown-menu dropdown-toggle-item dropdown-menu-end border py-2"><span class="dropdown-item active">Table View</span></div>';
-
-        controlWrap.appendChild(viewDropdown);
-
-        if (actionWrap) {
-          Array.from(actionWrap.children).forEach(function (button, index) {
-            button.className = index === 0
-              ? 'btn btn-falcon-default btn-sm mx-2'
-              : 'btn btn-falcon-default btn-sm';
-            controlWrap.appendChild(button);
-          });
-        }
-
-        var moreDropdown = document.createElement('div');
-        moreDropdown.className = 'dropdown font-sans-serif ms-2';
-        moreDropdown.innerHTML = '<button class="btn btn-falcon-default text-600 btn-sm dropdown-toggle dropdown-caret-none" type="button" data-bs-toggle="dropdown" data-boundary="viewport" aria-expanded="false"><span class="fas fa-ellipsis-h fs-11"></span></button><div class="dropdown-menu dropdown-menu-end border py-2"><a class="dropdown-item" href="#">View</a><a class="dropdown-item" href="#">Export</a><div class="dropdown-divider"></div><a class="dropdown-item text-danger" href="#">Remove</a></div>';
-        controlWrap.appendChild(moreDropdown);
-
-        rightGroup.appendChild(controlWrap);
-
-        headerLayout.appendChild(leftGroup);
-        headerLayout.appendChild(divider);
-        headerLayout.appendChild(rightGroup);
-
-        header.innerHTML = '';
-        header.appendChild(headerLayout);
-
-        var searchInput = header.querySelector('.generated-table-search');
-        if (searchInput && table) {
-          searchInput.addEventListener('input', function () {
-            var query = searchInput.value.trim().toLowerCase();
-            table.querySelectorAll('tbody tr').forEach(function (row) {
-              var text = row.textContent.toLowerCase();
-              row.style.display = !query || text.indexOf(query) !== -1 ? '' : 'none';
-            });
-          });
-        }
+        // Keep existing header markup intact; do not auto-generate Overview/search/actions toolbar.
       })();
     </script>
     <script src="<?= $appPathPrefix ?>/assets/js/theme.js"></script>

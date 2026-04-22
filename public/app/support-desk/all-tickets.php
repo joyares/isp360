@@ -210,6 +210,7 @@ $sql =
             t.created_at,
             c.username AS customer_username,
             c.phone_no AS customer_phone,
+            c.address AS customer_address,
             cat.category_name,
             pri.priority_name,
             pri.color AS priority_color,
@@ -332,56 +333,122 @@ require '../../includes/header.php';
     <?php endif; ?>
 
     <div class="card" id="ticketsTable">
-      <div class="card-header border-bottom border-200 px-x1 pb-2">
-        <!-- Row 1: Title, Search, New Button -->
+      <div class="px-2 py-2 pb-2 pt-2">
+        <!-- Row 1: Title, New Button -->
         <div class="row align-items-center gy-2 mb-3">
-          <div class="col-2">
+          <div class="col-auto">
             <h6 class="mb-0">All tickets</h6>
           </div>
-          <div class="col-7">
-            <form method="get" action="<?= $appBasePath ?>/app/support-desk/all-tickets.php">
-              <div class="input-group input-group-sm">
-                <input class="form-control form-control-sm shadow-none" type="search" name="q" value="<?= htmlspecialchars($search) ?>" placeholder="Search by ticket, customer, phone or issue" aria-label="search" />
-                <button class="btn btn-sm btn-outline-secondary border-300 hover-border-secondary" type="submit"><span class="fa fa-search fs-10"></span></button>
-              </div>
-            </form>
-          </div>
-          <div class="col-3 text-end">
+          <div class="col-auto ms-auto text-end">
             <a class="btn btn-falcon-default btn-sm" href="<?= $appBasePath ?>/app/support-desk/add-ticket.php"><span class="fas fa-plus" data-fa-transform="shrink-3"></span><span class="d-none d-sm-inline-block ms-1">New</span></a>
           </div>
         </div>
 
         <!-- Row 2: Filters -->
-        <form id="filterForm" method="get" action="<?= $appBasePath ?>/app/support-desk/all-tickets.php" class="d-flex align-items-center justify-content-end gap-2 mb-3">
-          <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
+        <form id="filterForm" method="get" action="<?= $appBasePath ?>/app/support-desk/all-tickets.php" class="row align-items-center g-2 mb-3">
+          <div class="col">
+            <div class="input-group input-group-sm">
+              <input class="form-control form-control-sm shadow-none" type="search" name="q" value="<?= htmlspecialchars($search) ?>" placeholder="Search by ticket, customer, phone or issue" aria-label="search" />
+              <button class="btn btn-sm btn-outline-secondary border-300 hover-border-secondary" type="submit"><span class="fa fa-search fs-10"></span></button>
+            </div>
+          </div>
+          <div class="col-auto d-flex align-items-center justify-content-end gap-2">
           <input type="date" class="form-control form-control-sm" id="filterDate" name="filter_date" value="<?= htmlspecialchars($filterDate) ?>" onchange="document.getElementById('filterForm').submit();" style="width: auto;">
-          <select class="form-select form-select-sm" id="filterStatus" name="filter_status" onchange="document.getElementById('filterForm').submit();" style="width: auto;">
-            <option value="0">Status</option>
-            <?php foreach ($ticketStatuses as $item): ?>
-              <option value="<?= (int) $item['ticket_status_id'] ?>" <?= $filterStatusId === (int) $item['ticket_status_id'] ? 'selected' : '' ?>><?= htmlspecialchars((string) $item['status_name']) ?></option>
-            <?php endforeach; ?>
-          </select>
-          <select class="form-select form-select-sm" id="filterPriority" name="filter_priority" onchange="document.getElementById('filterForm').submit();" style="width: auto;">
-            <option value="0">Priority</option>
-            <?php foreach ($priorities as $item): ?>
-              <option value="<?= (int) $item['priority_id'] ?>" <?= $filterPriorityId === (int) $item['priority_id'] ? 'selected' : '' ?>><?= htmlspecialchars((string) $item['priority_name']) ?></option>
-            <?php endforeach; ?>
-          </select>
-          <select class="form-select form-select-sm" id="filterAssigned" name="filter_assigned" onchange="document.getElementById('filterForm').submit();" style="width: auto;">
-            <option value="0">Agent</option>
-            <?php foreach ($employees as $item): ?>
-              <?php
-                $label = trim((string) ($item['full_name'] ?? ''));
-                if ($label === '') {
-                  $label = (string) ($item['username'] ?? 'Employee');
-                }
-              ?>
-              <option value="<?= (int) $item['admin_user_id'] ?>" <?= $filterAssigned === (int) $item['admin_user_id'] ? 'selected' : '' ?>><?= htmlspecialchars($label) ?></option>
-            <?php endforeach; ?>
-          </select>
+          <?php
+            $statusLabel = 'Status';
+            foreach ($ticketStatuses as $_s) {
+              if ((int) $_s['ticket_status_id'] === $filterStatusId) {
+                $statusLabel = htmlspecialchars((string) $_s['status_name']);
+                break;
+              }
+            }
+          ?>
+          <div class="dropdown">
+            <button class="btn btn-primary btn-sm dropdown-toggle py-1 px-2" type="button" id="filterStatusDropdown" data-bs-toggle="dropdown" aria-expanded="false" style="font-size:0.75rem;">
+              <?= $statusLabel ?>
+            </button>
+            <ul class="dropdown-menu" aria-labelledby="filterStatusDropdown">
+              <li>
+                <a class="dropdown-item <?= $filterStatusId === 0 ? 'active' : '' ?>" href="<?= $appBasePath ?>/app/support-desk/all-tickets.php?<?= http_build_query(array_merge($_GET, ['filter_status' => 0])) ?>">Status</a>
+              </li>
+              <?php foreach ($ticketStatuses as $item): ?>
+                <li>
+                  <a class="dropdown-item <?= $filterStatusId === (int) $item['ticket_status_id'] ? 'active' : '' ?>"
+                    href="<?= $appBasePath ?>/app/support-desk/all-tickets.php?<?= http_build_query(array_merge($_GET, ['filter_status' => (int) $item['ticket_status_id']])) ?>">
+                    <?= htmlspecialchars((string) $item['status_name']) ?>
+                  </a>
+                </li>
+              <?php endforeach; ?>
+            </ul>
+          </div>
+          <?php
+            $priorityLabel = 'Priority';
+            foreach ($priorities as $_p) {
+              if ((int) $_p['priority_id'] === $filterPriorityId) {
+                $priorityLabel = htmlspecialchars((string) $_p['priority_name']);
+                break;
+              }
+            }
+          ?>
+          <div class="dropdown">
+            <button class="btn btn-primary btn-sm dropdown-toggle py-1 px-2" type="button" id="filterPriorityDropdown" data-bs-toggle="dropdown" aria-expanded="false" style="font-size:0.75rem;">
+              <?= $priorityLabel ?>
+            </button>
+            <ul class="dropdown-menu" aria-labelledby="filterPriorityDropdown">
+              <li>
+                <a class="dropdown-item <?= $filterPriorityId === 0 ? 'active' : '' ?>" href="<?= $appBasePath ?>/app/support-desk/all-tickets.php?<?= http_build_query(array_merge($_GET, ['filter_priority' => 0])) ?>">Priority</a>
+              </li>
+              <?php foreach ($priorities as $item): ?>
+                <li>
+                  <a class="dropdown-item <?= $filterPriorityId === (int) $item['priority_id'] ? 'active' : '' ?>"
+                    href="<?= $appBasePath ?>/app/support-desk/all-tickets.php?<?= http_build_query(array_merge($_GET, ['filter_priority' => (int) $item['priority_id']])) ?>">
+                    <?= htmlspecialchars((string) $item['priority_name']) ?>
+                  </a>
+                </li>
+              <?php endforeach; ?>
+            </ul>
+          </div>
+          <?php
+            $assignedLabel = 'Agent';
+            foreach ($employees as $_e) {
+              $employeeLabel = trim((string) ($_e['full_name'] ?? ''));
+              if ($employeeLabel === '') {
+                $employeeLabel = (string) ($_e['username'] ?? 'Employee');
+              }
+              if ((int) $_e['admin_user_id'] === $filterAssigned) {
+                $assignedLabel = htmlspecialchars($employeeLabel);
+                break;
+              }
+            }
+          ?>
+          <div class="dropdown">
+            <button class="btn btn-primary btn-sm dropdown-toggle py-1 px-2" type="button" id="filterAssignedDropdown" data-bs-toggle="dropdown" aria-expanded="false" style="font-size:0.75rem;">
+              <?= $assignedLabel ?>
+            </button>
+            <ul class="dropdown-menu" aria-labelledby="filterAssignedDropdown">
+              <li>
+                <a class="dropdown-item <?= $filterAssigned === 0 ? 'active' : '' ?>" href="<?= $appBasePath ?>/app/support-desk/all-tickets.php?<?= http_build_query(array_merge($_GET, ['filter_assigned' => 0])) ?>">Agent</a>
+              </li>
+              <?php foreach ($employees as $item): ?>
+                <?php
+                  $label = trim((string) ($item['full_name'] ?? ''));
+                  if ($label === '') {
+                    $label = (string) ($item['username'] ?? 'Employee');
+                  }
+                ?>
+                <li>
+                  <a class="dropdown-item <?= $filterAssigned === (int) $item['admin_user_id'] ? 'active' : '' ?>"
+                    href="<?= $appBasePath ?>/app/support-desk/all-tickets.php?<?= http_build_query(array_merge($_GET, ['filter_assigned' => (int) $item['admin_user_id']])) ?>">
+                    <?= htmlspecialchars($label) ?>
+                  </a>
+                </li>
+              <?php endforeach; ?>
+            </ul>
+          </div>
           <a class="btn btn-link p-0 text-primary" href="<?= $appBasePath ?>/app/support-desk/all-tickets.php" data-bs-toggle="tooltip" data-bs-placement="top" title="Reset Filters">
             <span class="fas fa-redo fs-9"></span>
           </a>
+          </div>
         </form>
       </div>
 
@@ -457,7 +524,7 @@ require '../../includes/header.php';
                     <td class="align-middle ps-2">
                       <div class="d-flex flex-column gap-1">
                         <div class="fw-semi-bold fs-10"><?= htmlspecialchars((string) $ticket['ticket_no']) ?></div>
-                        <small class="badge rounded badge-subtle-<?= $statusClass ?>"><?= htmlspecialchars($statusLabel) ?></small>
+                        <small class="badge rounded badge-subtle-<?= $statusClass ?> align-self-start"><?= htmlspecialchars($statusLabel) ?></small>
                         <div class="d-flex align-items-center gap-1">
                           <small class="badge badge-subtle-success rounded-pill" style="font-size: 0.7rem;"><span class="fas fa-hourglass-end me-1" style="font-size: 0.65rem;"></span><?= $durationText ?></small>
                           <small class="badge badge-subtle-secondary rounded-pill" style="font-size: 0.7rem;"><span class="fas fa-sync me-1" style="font-size: 0.65rem;"></span><?= $updatedTime->format('H:i') ?></small>
@@ -467,12 +534,15 @@ require '../../includes/header.php';
                     <td class="align-middle client white-space-nowrap pe-3 pe-xxl-4 ps-2">
                       <div class="d-flex align-items-center gap-2 position-relative">
                         <div class="avatar avatar-xl"><div class="avatar-name rounded-circle"><span><?= htmlspecialchars(strtoupper(substr($clientLabel, 0, 1))) ?></span></div></div>
-                        <h6 class="mb-0"><a class="stretched-link text-900" href="<?= $appBasePath ?>/app/support-desk/all-tickets.php?ticket_id=<?= (int) $ticket['ticket_id'] ?>#selected-ticket-details"><?= htmlspecialchars($clientLabel) ?></a></h6>
+                        <div class="d-flex flex-column gap-1">
+                          <h6 class="mb-0"><a class="stretched-link text-900" href="<?= $appBasePath ?>/app/support-desk/all-tickets.php?ticket_id=<?= (int) $ticket['ticket_id'] ?>#selected-ticket-details"><?= htmlspecialchars($clientLabel) ?></a></h6>
+                          <small class="text-600"><?= htmlspecialchars((string) (($ticket['customer_phone'] ?? '') !== '' ? $ticket['customer_phone'] : '-')) ?></small>
+                        </div>
                       </div>
                     </td>
                     <td class="align-middle subject py-2 pe-4">
                       <div class="d-flex flex-column gap-1">
-                        <small class="badge badge-subtle-primary rounded-pill text-start"><?= htmlspecialchars((string) ($ticket['category_name'] ?: 'Uncategorized')) ?></small>
+                        <small class="badge badge-subtle-primary rounded-pill text-start align-self-start"><?= htmlspecialchars((string) ($ticket['category_name'] ?: 'Uncategorized')) ?></small>
                         <span><?= htmlspecialchars(mb_strimwidth((string) $ticket['issue_details'], 0, 80, '...')) ?></span>
                       </div>
                     </td>
@@ -498,52 +568,79 @@ require '../../includes/header.php';
 
   <div class="col-xl-3 col-lg-3 col-12" id="selected-ticket-details">
     <!-- Summary Stats Card (always visible) -->
-    <div class="card mb-3">
-      <div class="card-header border-bottom border-200">
-        <h6 class="mb-0">Tickets Summary <span class="badge badge-subtle-primary rounded-pill ms-2"><?= $totalTickets ?></span></h6>
-      </div>
-      <div class="card-body px-3 py-2">
-        <?php
-          $statusBadgeMap = [
-            'open'       => 'success',
-            'new'        => 'success',
-            'progress'   => 'info',
-            'responded'  => 'info',
-            'pending'    => 'warning',
-            'hold'       => 'warning',
-            'closed'     => 'secondary',
-            'resolved'   => 'secondary',
-            'unassigned' => 'danger',
-          ];
-          $srChunks = array_chunk($statusSummary, 2);
-          foreach ($srChunks as $pair):
-        ?>
-        <div class="row g-2 mb-2">
-          <?php foreach ($pair as $sr):
-            $sLabel = (string) $sr['status_name'];
-            $sBadge = 'secondary';
-            foreach ($statusBadgeMap as $keyword => $cls) {
-              if (stripos($sLabel, $keyword) !== false) { $sBadge = $cls; break; }
-            }
-          ?>
-          <div class="col-6">
-            <div class="d-flex align-items-center gap-1 px-1 py-1">
-              <div class="d-flex align-items-center gap-1 min-w-0">
-                <span class="fas fa-circle fs-11 text-<?= $sBadge ?>"></span>
-                <span class="fs-11 text-truncate" style="max-width:6.5rem;"><?= htmlspecialchars($sLabel) ?></span>
+    <?php
+      $statusBadgeMap = [
+        'open'       => 'success',
+        'new'        => 'success',
+        'progress'   => 'info',
+        'responded'  => 'info',
+        'pending'    => 'warning',
+        'hold'       => 'warning',
+        'closed'     => 'secondary',
+        'resolved'   => 'secondary',
+        'unassigned' => 'danger',
+      ];
+      $statusColorHexMap = [
+        'primary'   => '#2c7be5',
+        'success'   => '#00d27a',
+        'info'      => '#27bcfd',
+        'warning'   => '#f5803e',
+        'danger'    => '#e63757',
+        'secondary' => '#748194',
+      ];
+    ?>
+    <div class="card h-md-100 mb-3" style="max-height: calc(106px + (var(--falcon-card-spacer-y, 1.25rem) * 2));">
+      <div class="card-body">
+        <div class="row h-100 justify-content-between g-0">
+          <div class="col-7 col-sm-8 pe-2">
+            <div class="fs-11 mt-2">
+              <?php foreach ($statusSummary as $sr):
+                $sLabel = (string) $sr['status_name'];
+                $sCount = (int) $sr['cnt'];
+                $sBadge = 'secondary';
+                foreach ($statusBadgeMap as $keyword => $cls) {
+                  if (stripos($sLabel, $keyword) !== false) {
+                    $sBadge = $cls;
+                    break;
+                  }
+                }
+                $segmentColor = $statusColorHexMap[$sBadge] ?? '#748194';
+              ?>
+              <div class="d-flex align-items-center gap-1 mb-1">
+                <div class="d-flex align-items-center gap-2 min-w-0">
+                  <span class="dot bg-<?= $sBadge ?>"></span>
+                  <span class="fw-semi-bold text-truncate" style="max-width:8.5rem;"><?= htmlspecialchars($sLabel) ?></span>
+                </div>
+                <span class="badge badge-subtle-<?= $sBadge ?> rounded-pill"><?= $sCount ?></span>
               </div>
-              <span class="badge badge-subtle-<?= $sBadge ?> rounded-pill ms-1"><?= (int) $sr['cnt'] ?></span>
+              <?php endforeach; ?>
             </div>
           </div>
-          <?php endforeach; ?>
+          <div class="col-auto position-relative d-flex align-items-center align-self-start" style="top: 0;">
+            <div class="position-relative" style="width:106px; height:106px;">
+              <canvas id="ticketsSummaryCanvas" width="106" height="106" style="position: absolute; left: 0px; top: 0px; width: 106px; height: 106px; user-select: none; -webkit-tap-highlight-color: rgba(0, 0, 0, 0); padding: 0px; margin: 0px; border-width: 0px;"
+                data-values="<?= htmlspecialchars(implode(',', array_map(static fn($sr) => (int) $sr['cnt'], $statusSummary)), ENT_QUOTES, 'UTF-8') ?>"
+                data-colors="<?= htmlspecialchars(implode(',', array_map(static function($sr) use ($statusBadgeMap, $statusColorHexMap) {
+                  $label = (string) $sr['status_name'];
+                  $badge = 'secondary';
+                  foreach ($statusBadgeMap as $keyword => $cls) {
+                    if (stripos($label, $keyword) !== false) {
+                      $badge = $cls;
+                      break;
+                    }
+                  }
+                  return $statusColorHexMap[$badge] ?? '#748194';
+                }, $statusSummary)), ENT_QUOTES, 'UTF-8') ?>"></canvas>
+              <div class="position-absolute top-50 start-50 translate-middle text-1100 fs-7 fw-semi-bold"><?= $totalTickets ?></div>
+            </div>
+          </div>
         </div>
-        <?php endforeach; ?>
       </div>
     </div>
 
     <?php if ($selectedTicket !== null): ?>
       <!-- Ticket Details Card -->
-      <div class="card mb-3">
+      <div class="card mb-3" style="background-image: url(<?= $appBasePath ?>/assets/img/icons/spot-illustrations/corner-1.png); background-position: right bottom; background-repeat: no-repeat; background-size: auto 100%;">
         <div class="card-body position-relative">
           <?php
             $createdAt = $selectedTicket['created_at'] ?? '';
@@ -582,7 +679,9 @@ require '../../includes/header.php';
               <span class="badge badge-subtle-<?= $statusClass ?> rounded-pill"><?= htmlspecialchars($statusLabel) ?></span>
               <span class="badge badge-subtle-success rounded-pill"><span class="fas fa-calendar-plus me-1"></span><?= $durationText ?></span>
             </div>
-            <a class="fw-semi-bold fs-10 text-nowrap" href="#" data-bs-toggle="modal" data-bs-target="#editTicketModal">Edit Details<span class="fas fa-angle-right ms-1"></span></a>
+            <button class="btn btn-link p-0 text-primary" type="button" data-bs-toggle="modal" data-bs-target="#editTicketModal" title="Edit Details" aria-label="Edit Details">
+              <span class="fas fa-edit fs-9"></span>
+            </button>
           </div>
 
           <!-- Row 2: Ticket ID + Copy Button -->
@@ -637,15 +736,19 @@ require '../../includes/header.php';
       </div>
 
       <!-- Customer Details Card -->
-      <div class="card mb-3">
+      <div class="card mb-3" style="background-image: url(<?= $appBasePath ?>/assets/img/icons/spot-illustrations/corner-2.png); background-position: right bottom; background-repeat: no-repeat; background-size: auto 100%;">
         <div class="card-body position-relative">
           <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
             <h6 class="mb-0">Customer<span class="badge badge-subtle-info rounded-pill ms-2">Active</span></h6>
-            <a class="fw-semi-bold fs-10 text-nowrap" href="#">View Customer<span class="fas fa-angle-right ms-1"></span></a>
+            <a class="btn btn-link p-0 text-primary" href="#" data-bs-toggle="tooltip" data-bs-placement="top" title="View Customer" aria-label="View Customer">
+              <span class="fas fa-eye fs-9"></span>
+            </a>
           </div>
 
           <?php $customerName = (string) ($selectedTicket['customer_username'] ?: '-'); ?>
           <?php $customerPhone = (string) ($selectedTicket['customer_phone'] ?? ''); ?>
+          <?php $customerAddress = (string) ($selectedTicket['customer_address'] ?? ''); ?>
+          <?php $customerAddressLabel = $customerAddress !== '' ? $customerAddress : 'No address on record'; ?>
 
           <!-- Inline Row: Name + Phone -->
           <?php if ($customerPhone !== ''): ?>
@@ -665,6 +768,10 @@ require '../../includes/header.php';
               </button>
             </div>
           </div>
+          <div class="d-flex align-items-start gap-2 mt-1">
+            <span class="fas fa-map-marker-alt text-500 fs-9 mt-1"></span>
+            <span class="fw-semi-bold fs-10 text-700"><?= htmlspecialchars($customerAddressLabel) ?></span>
+          </div>
           <?php else: ?>
           <div class="d-flex align-items-center gap-2 mb-1">
             <span class="fas fa-user text-500 fs-9"></span>
@@ -674,6 +781,10 @@ require '../../includes/header.php';
             </button>
           </div>
           <div class="mb-1"><small class="text-500 fs-11">No phone on record</small></div>
+          <div class="d-flex align-items-start gap-2 mt-1">
+            <span class="fas fa-map-marker-alt text-500 fs-9 mt-1"></span>
+            <span class="fw-semi-bold fs-10 text-700"><?= htmlspecialchars($customerAddressLabel) ?></span>
+          </div>
           <?php endif; ?>
         </div>
       </div>
@@ -822,8 +933,58 @@ function copyToClipboard(text) {
   });
 }
 
+function drawTicketsSummaryCanvas() {
+  const canvas = document.getElementById('ticketsSummaryCanvas');
+  if (!canvas) {
+    return;
+  }
+
+  const values = (canvas.dataset.values || '')
+    .split(',')
+    .map(v => parseInt(v, 10))
+    .filter(v => !Number.isNaN(v) && v > 0);
+  const colors = (canvas.dataset.colors || '').split(',').filter(Boolean);
+  const total = values.reduce((sum, v) => sum + v, 0);
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return;
+  }
+
+  const width = canvas.width;
+  const height = canvas.height;
+  const cx = width / 2;
+  const cy = height / 2;
+  const radius = Math.min(width, height) / 2 - 4;
+  const lineWidth = 18;
+
+  ctx.clearRect(0, 0, width, height);
+
+  if (total <= 0) {
+    ctx.beginPath();
+    ctx.strokeStyle = '#e3e6ed';
+    ctx.lineWidth = lineWidth;
+    ctx.arc(cx, cy, radius - lineWidth / 2, 0, Math.PI * 2);
+    ctx.stroke();
+    return;
+  }
+
+  let startAngle = -Math.PI / 2;
+  values.forEach((value, index) => {
+    const sliceAngle = (value / total) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.strokeStyle = colors[index] || '#748194';
+    ctx.lineWidth = lineWidth;
+    ctx.lineCap = 'butt';
+    ctx.arc(cx, cy, radius - lineWidth / 2, startAngle, startAngle + sliceAngle);
+    ctx.stroke();
+    startAngle += sliceAngle;
+  });
+}
+
 // Initialize tooltips
 document.addEventListener('DOMContentLoaded', function() {
+  drawTicketsSummaryCanvas();
   const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
   tooltipTriggerList.map(function (tooltipTriggerEl) {
     return new bootstrap.Tooltip(tooltipTriggerEl);

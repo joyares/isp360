@@ -2533,7 +2533,7 @@
           <div class="row gx-3">
             <div class="col-xxl-10 col-xl-9">
               <div class="card" id="ticketsTable" data-list='{"valueNames":["client","subject","status","priority","agent"],"page":7,"pagination":true,"fallback":"tickets-card-fallback"}'>
-                <div class="card-header border-bottom border-200 px-0">
+                <div class="px-0">
                   <div class="d-lg-flex justify-content-between">
                     <div class="row flex-between-center gy-2 px-x1">
                       <div class="col-auto pe-0">

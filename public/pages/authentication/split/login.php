@@ -5,7 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../includes/auth.php';
 
 $documentRootPath = isset($_SERVER['DOCUMENT_ROOT']) ? realpath($_SERVER['DOCUMENT_ROOT']) : false;
-$projectRootPath = realpath(dirname(__DIR__, 4));
+$projectRootPath = realpath(dirname(__DIR__, 3));
 
 $appBasePath = '';
 if ($documentRootPath && $projectRootPath) {
@@ -145,8 +145,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <script src="<?= $appBasePath ?>/assets/js/theme.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/1.13.1/TweenLite.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/1.13.1/easing/EasePack.min.js"></script>
-    <script src="js/rAF.js"></script>
-    <script src="js/login.js"></script>
+    <script src="<?= $appBasePath ?>/pages/authentication/split/js/rAF.js"></script>
+    <script src="<?= $appBasePath ?>/pages/authentication/split/js/login.js"></script>
     <script>
       (function () {
         if (typeof CanvasBG !== 'undefined' && CanvasBG.init) {
