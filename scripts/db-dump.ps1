@@ -59,6 +59,8 @@ $args = @(
     "--port=$dbPort",
     "--user=$dbUser",
     "--single-transaction",
+    "--skip-comments",
+    "--skip-dump-date",
     "--routines",
     "--triggers",
     "--events",
@@ -81,6 +83,51 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+$existingSameContent = $false
+if (Test-Path $dumpPath) {
+    $existingTempSqlPath = Join-Path $dumpDir "isp360-data.current.sql"
+    if (Test-Path $existingTempSqlPath) {
+        Remove-Item -Path $existingTempSqlPath -Force
+    }
+
+    if ($dumpPath.ToLower().EndsWith('.gz')) {
+        $existingFileStream = [System.IO.File]::OpenRead($dumpPath)
+        try {
+            $existingGzipStream = New-Object System.IO.Compression.GzipStream($existingFileStream, [System.IO.Compression.CompressionMode]::Decompress)
+            try {
+                $existingOutput = [System.IO.File]::Create($existingTempSqlPath)
+                try {
+                    $existingGzipStream.CopyTo($existingOutput)
+                } finally {
+                    $existingOutput.Dispose()
+                }
+            } finally {
+                $existingGzipStream.Dispose()
+            }
+        } finally {
+            $existingFileStream.Dispose()
+        }
+    } else {
+        Copy-Item -Path $dumpPath -Destination $existingTempSqlPath -Force
+    }
+
+    if (Test-Path $existingTempSqlPath) {
+        $newHash = (Get-FileHash -Algorithm SHA256 -Path $tempSqlPath).Hash
+        $existingHash = (Get-FileHash -Algorithm SHA256 -Path $existingTempSqlPath).Hash
+        if ($newHash -eq $existingHash) {
+            $existingSameContent = $true
+        }
+        Remove-Item -Path $existingTempSqlPath -Force
+    }
+}
+
+if ($existingSameContent) {
+    Remove-Item -Path $tempSqlPath -Force
+    Write-Host "Database dump unchanged: $DumpFile"
+    exit 0
+}
+
 $inputStream = [System.IO.File]::OpenRead($tempSqlPath)
 $outputStream = [System.IO.File]::Create($dumpPath)
 try {
