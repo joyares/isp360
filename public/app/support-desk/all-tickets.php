@@ -8,6 +8,49 @@ use App\Core\Database;
 
 $pdo = Database::getConnection();
 
+$ispts_has_column = static function (PDO $pdo, string $table, string $column): bool {
+  $stmt = $pdo->prepare(
+    'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column'
+  );
+  $stmt->bindValue(':table', $table);
+  $stmt->bindValue(':column', $column);
+  $stmt->execute();
+  return (int) $stmt->fetchColumn() > 0;
+};
+
+$pdo->exec(
+  "CREATE TABLE IF NOT EXISTS support_ticket_companies (
+    company_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    company_name VARCHAR(190) NOT NULL,
+    status TINYINT(1) NOT NULL DEFAULT 1,
+    sort_order INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_support_ticket_companies_name (company_name)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+);
+
+$pdo->exec(
+  "CREATE TABLE IF NOT EXISTS support_ticket_branches (
+    branch_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    company_id BIGINT UNSIGNED NOT NULL,
+    branch_name VARCHAR(190) NOT NULL,
+    status TINYINT(1) NOT NULL DEFAULT 1,
+    sort_order INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_support_ticket_branches_company (company_id),
+    UNIQUE KEY uk_support_ticket_branches_company_name (company_id, branch_name)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+);
+
+if (!$ispts_has_column($pdo, 'support_tickets', 'company_id')) {
+  $pdo->exec('ALTER TABLE support_tickets ADD COLUMN company_id BIGINT UNSIGNED NULL AFTER customer_id');
+}
+if (!$ispts_has_column($pdo, 'support_tickets', 'branch_id')) {
+  $pdo->exec('ALTER TABLE support_tickets ADD COLUMN branch_id BIGINT UNSIGNED NULL AFTER company_id');
+}
+
 $alert = null;
 $currentPath = $_SERVER['PHP_SELF'] ?? '/app/support-desk/all-tickets.php';
 
@@ -113,11 +156,55 @@ if ($alert === null && isset($_GET['note_saved'])) {
 }
 
 $search = trim((string) ($_GET['q'] ?? ''));
-$filterDate = trim((string) ($_GET['filter_date'] ?? ''));
-if ($filterDate === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $filterDate)) {
-    $filterDate = date('Y-m-d');
+$todayDate = date('Y-m-d');
+$oneMonthAgoDate = date('Y-m-d', strtotime('-1 month'));
+
+$legacyFilterDate = trim((string) ($_GET['filter_date'] ?? ''));
+$filterFromDate = trim((string) ($_GET['filter_from_date'] ?? ''));
+$filterToDate = trim((string) ($_GET['filter_to_date'] ?? ''));
+
+if ($filterFromDate === '' && $legacyFilterDate !== '') {
+  $filterFromDate = $legacyFilterDate;
 }
-$filterStatusId = isset($_GET['filter_status']) ? (int) $_GET['filter_status'] : 0;
+if ($filterToDate === '' && $legacyFilterDate !== '') {
+  $filterToDate = $legacyFilterDate;
+}
+
+if ($filterFromDate !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $filterFromDate)) {
+  $filterFromDate = '';
+}
+if ($filterToDate !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $filterToDate)) {
+  $filterToDate = '';
+}
+
+$rawFilterStatus = isset($_GET['filter_status']) ? trim((string) $_GET['filter_status']) : '';
+$showAllStatuses = strcasecmp($rawFilterStatus, 'all') === 0;
+$filterStatusId = !$showAllStatuses && $rawFilterStatus !== '' ? (int) $rawFilterStatus : 0;
+
+if ($showAllStatuses) {
+  if ($filterFromDate === '') {
+    $filterFromDate = $oneMonthAgoDate;
+  }
+  if ($filterToDate === '') {
+    $filterToDate = $todayDate;
+  }
+} else {
+  if ($filterFromDate === '' && $filterToDate === '') {
+    $filterFromDate = $todayDate;
+    $filterToDate = $todayDate;
+  } elseif ($filterFromDate === '') {
+    $filterFromDate = $filterToDate;
+  } elseif ($filterToDate === '') {
+    $filterToDate = $filterFromDate;
+  }
+}
+
+if ($filterFromDate !== '' && $filterToDate !== '' && strtotime($filterFromDate) > strtotime($filterToDate)) {
+  $swapDate = $filterFromDate;
+  $filterFromDate = $filterToDate;
+  $filterToDate = $swapDate;
+}
+
 $filterPriorityId = isset($_GET['filter_priority']) ? (int) $_GET['filter_priority'] : 0;
 $filterAssigned = isset($_GET['filter_assigned']) ? (int) $_GET['filter_assigned'] : 0;
 
@@ -159,6 +246,16 @@ try {
     $ticketStatuses = [];
 }
 
+if (!$showAllStatuses && $filterStatusId <= 0) {
+  foreach ($ticketStatuses as $ticketStatus) {
+    $statusName = trim((string) ($ticketStatus['status_name'] ?? ''));
+    if (stripos($statusName, 'open') !== false) {
+      $filterStatusId = (int) ($ticketStatus['ticket_status_id'] ?? 0);
+      break;
+    }
+  }
+}
+
 try {
     $employees = $pdo->query(
         'SELECT admin_user_id, full_name, username
@@ -178,7 +275,7 @@ if ($search !== '') {
     $params[':search'] = '%' . $search . '%';
 }
 
-if ($filterStatusId > 0) {
+if (!$showAllStatuses && $filterStatusId > 0) {
     $where[] = 't.ticket_status_id = :filter_status';
     $params[':filter_status'] = $filterStatusId;
 }
@@ -193,9 +290,10 @@ if ($filterAssigned > 0) {
     $params[':filter_assigned'] = $filterAssigned;
 }
 
-if ($filterDate !== '') {
-    $where[] = 'DATE(t.created_at) = :filter_date';
-    $params[':filter_date'] = $filterDate;
+if ($filterFromDate !== '' && $filterToDate !== '') {
+  $where[] = 'DATE(t.created_at) BETWEEN :filter_from_date AND :filter_to_date';
+  $params[':filter_from_date'] = $filterFromDate;
+  $params[':filter_to_date'] = $filterToDate;
 }
 
 $sql =
@@ -208,6 +306,58 @@ $sql =
             t.ticket_status_id,
             t.assigned_employee_id,
             t.created_at,
+            co.company_name,
+            br.branch_name,
+            (
+                SELECT mc.logo_icon
+                FROM mycompany mc
+                WHERE mc.status = 1
+                  AND mc.company = co.company_name
+                  AND mc.logo_icon IS NOT NULL
+                  AND mc.logo_icon <> \'\'
+                ORDER BY mc.id DESC
+                LIMIT 1
+            ) AS company_logo_icon,
+            (
+                SELECT mc.logo_main
+                FROM mycompany mc
+                WHERE mc.status = 1
+                  AND mc.company = co.company_name
+                  AND mc.logo_main IS NOT NULL
+                  AND mc.logo_main <> \'\'
+                ORDER BY mc.id DESC
+                LIMIT 1
+            ) AS company_logo_main,
+            (
+                SELECT mc.phone
+                FROM mycompany mc
+                WHERE mc.status = 1
+                  AND mc.company = co.company_name
+                  AND mc.phone IS NOT NULL
+                  AND mc.phone <> \'\'
+                ORDER BY mc.id DESC
+                LIMIT 1
+            ) AS company_phone,
+            (
+                SELECT mc.email
+                FROM mycompany mc
+                WHERE mc.status = 1
+                  AND mc.company = co.company_name
+                  AND mc.email IS NOT NULL
+                  AND mc.email <> \'\'
+                ORDER BY mc.id DESC
+                LIMIT 1
+            ) AS company_email,
+            (
+                SELECT mc.address
+                FROM mycompany mc
+                WHERE mc.status = 1
+                  AND mc.company = co.company_name
+                  AND mc.address IS NOT NULL
+                  AND mc.address <> \'\'
+                ORDER BY mc.id DESC
+                LIMIT 1
+            ) AS company_address,
             c.username AS customer_username,
             c.phone_no AS customer_phone,
             c.address AS customer_address,
@@ -223,6 +373,8 @@ $sql =
      LEFT JOIN support_ticket_priorities pri ON pri.priority_id = t.priority_id
      LEFT JOIN support_ticket_statuses st ON st.ticket_status_id = t.ticket_status_id
      LEFT JOIN admin_users au ON au.admin_user_id = t.assigned_employee_id
+    LEFT JOIN support_ticket_companies co ON co.company_id = t.company_id
+    LEFT JOIN support_ticket_branches br ON br.branch_id = t.branch_id
      WHERE ' . implode(' AND ', $where) . '
      ORDER BY t.ticket_id DESC';
 
@@ -353,13 +505,16 @@ require '../../includes/header.php';
             </div>
           </div>
           <div class="col-auto d-flex align-items-center justify-content-end gap-2">
-          <input type="date" class="form-control form-control-sm" id="filterDate" name="filter_date" value="<?= htmlspecialchars($filterDate) ?>" onchange="document.getElementById('filterForm').submit();" style="width: auto;">
+          <input type="date" class="form-control form-control-sm" id="filterFromDate" name="filter_from_date" value="<?= htmlspecialchars($filterFromDate) ?>" onchange="document.getElementById('filterForm').submit();" style="width: auto;">
+          <input type="date" class="form-control form-control-sm" id="filterToDate" name="filter_to_date" value="<?= htmlspecialchars($filterToDate) ?>" onchange="document.getElementById('filterForm').submit();" style="width: auto;">
           <?php
-            $statusLabel = 'Status';
-            foreach ($ticketStatuses as $_s) {
-              if ((int) $_s['ticket_status_id'] === $filterStatusId) {
-                $statusLabel = htmlspecialchars((string) $_s['status_name']);
-                break;
+            $statusLabel = $showAllStatuses ? 'All' : 'Status';
+            if (!$showAllStatuses) {
+              foreach ($ticketStatuses as $_s) {
+                if ((int) $_s['ticket_status_id'] === $filterStatusId) {
+                  $statusLabel = htmlspecialchars((string) $_s['status_name']);
+                  break;
+                }
               }
             }
           ?>
@@ -368,13 +523,28 @@ require '../../includes/header.php';
               <?= $statusLabel ?>
             </button>
             <ul class="dropdown-menu" aria-labelledby="filterStatusDropdown">
+              <?php
+                $allStatusQuery = $_GET;
+                unset($allStatusQuery['filter_date']);
+                $allStatusQuery['filter_status'] = 'all';
+                $allStatusQuery['filter_from_date'] = $oneMonthAgoDate;
+                $allStatusQuery['filter_to_date'] = $todayDate;
+              ?>
               <li>
-                <a class="dropdown-item <?= $filterStatusId === 0 ? 'active' : '' ?>" href="<?= $appBasePath ?>/app/support-desk/all-tickets.php?<?= http_build_query(array_merge($_GET, ['filter_status' => 0])) ?>">Status</a>
+                <a class="dropdown-item <?= $showAllStatuses ? 'active' : '' ?>" href="<?= $appBasePath ?>/app/support-desk/all-tickets.php?<?= http_build_query($allStatusQuery) ?>">All</a>
               </li>
+              <li><hr class="dropdown-divider"></li>
               <?php foreach ($ticketStatuses as $item): ?>
+                <?php
+                  $statusItemQuery = $_GET;
+                  unset($statusItemQuery['filter_date']);
+                  $statusItemQuery['filter_status'] = (int) $item['ticket_status_id'];
+                  $statusItemQuery['filter_from_date'] = $filterFromDate;
+                  $statusItemQuery['filter_to_date'] = $filterToDate;
+                ?>
                 <li>
-                  <a class="dropdown-item <?= $filterStatusId === (int) $item['ticket_status_id'] ? 'active' : '' ?>"
-                    href="<?= $appBasePath ?>/app/support-desk/all-tickets.php?<?= http_build_query(array_merge($_GET, ['filter_status' => (int) $item['ticket_status_id']])) ?>">
+                  <a class="dropdown-item <?= !$showAllStatuses && $filterStatusId === (int) $item['ticket_status_id'] ? 'active' : '' ?>"
+                    href="<?= $appBasePath ?>/app/support-desk/all-tickets.php?<?= http_build_query($statusItemQuery) ?>">
                     <?= htmlspecialchars((string) $item['status_name']) ?>
                   </a>
                 </li>
@@ -462,6 +632,7 @@ require '../../includes/header.php';
                 <th class="text-800 align-middle ps-2">Client</th>
                 <th class="text-800 align-middle" style="min-width:15.625rem">Issue</th>
                 <th class="text-800 align-middle">Priority</th>
+                <th class="text-800 align-middle">Company</th>
                 <th class="text-800 align-middle text-end">Agent</th>
               </tr>
             </thead>
@@ -476,6 +647,10 @@ require '../../includes/header.php';
                     $statusLabel = (string) ($ticket['status_name'] ?: 'Unspecified');
                     $priorityLabel = (string) ($ticket['priority_name'] ?: 'Normal');
                     $clientLabel = (string) ($ticket['customer_username'] ?: 'General');
+                    $companyLabel = (string) (($ticket['company_name'] ?? '') !== '' ? $ticket['company_name'] : '-');
+                    $branchLabel = (string) (($ticket['branch_name'] ?? '') !== '' ? $ticket['branch_name'] : '-');
+                    $companyLogo = trim((string) ($ticket['company_logo_icon'] ?? ''));
+                    $companyLogoUrl = $companyLogo !== '' ? ($appBasePath . '/' . ltrim($companyLogo, '/')) : '';
                     $agentLabel = (string) ($ticket['assigned_employee_name'] ?: $ticket['assigned_employee_username'] ?: '-');
 
                     $statusClass = 'secondary';
@@ -533,7 +708,13 @@ require '../../includes/header.php';
                     </td>
                     <td class="align-middle client white-space-nowrap pe-3 pe-xxl-4 ps-2">
                       <div class="d-flex align-items-center gap-2 position-relative">
-                        <div class="avatar avatar-xl"><div class="avatar-name rounded-circle"><span><?= htmlspecialchars(strtoupper(substr($clientLabel, 0, 1))) ?></span></div></div>
+                        <div class="avatar avatar-xl">
+                          <?php if ($companyLogoUrl !== ''): ?>
+                            <img class="rounded-circle" src="<?= htmlspecialchars($companyLogoUrl) ?>" alt="<?= htmlspecialchars($companyLabel) ?> logo" style="object-fit: cover; width: 100%; height: 100%;">
+                          <?php else: ?>
+                            <div class="avatar-name rounded-circle"><span><?= htmlspecialchars(strtoupper(substr($companyLabel !== '-' ? $companyLabel : $clientLabel, 0, 1))) ?></span></div>
+                          <?php endif; ?>
+                        </div>
                         <div class="d-flex flex-column gap-1">
                           <h6 class="mb-0"><a class="stretched-link text-900" href="<?= $appBasePath ?>/app/support-desk/all-tickets.php?ticket_id=<?= (int) $ticket['ticket_id'] ?>#selected-ticket-details"><?= htmlspecialchars($clientLabel) ?></a></h6>
                           <small class="text-600"><?= htmlspecialchars((string) (($ticket['customer_phone'] ?? '') !== '' ? $ticket['customer_phone'] : '-')) ?></small>
@@ -553,6 +734,12 @@ require '../../includes/header.php';
                             <circle class="progress-bar-top" cx="60" cy="60" r="54" fill="none" stroke-linecap="round" stroke="<?= htmlspecialchars($priorityStroke) ?>" stroke-width="12"></circle>
                           </svg></div>
                         <h6 class="mb-0 text-700"><?= htmlspecialchars($priorityLabel) ?></h6>
+                      </div>
+                    </td>
+                    <td class="align-middle company">
+                      <div class="d-flex flex-column gap-1">
+                        <span class="fw-semi-bold text-900"><?= htmlspecialchars($companyLabel) ?></span>
+                        <small class="text-600"><?= htmlspecialchars($branchLabel) ?></small>
                       </div>
                     </td>
                     <td class="align-middle agent text-end"><?= htmlspecialchars($agentLabel) ?></td>
@@ -679,9 +866,14 @@ require '../../includes/header.php';
               <span class="badge badge-subtle-<?= $statusClass ?> rounded-pill"><?= htmlspecialchars($statusLabel) ?></span>
               <span class="badge badge-subtle-success rounded-pill"><span class="fas fa-calendar-plus me-1"></span><?= $durationText ?></span>
             </div>
-            <button class="btn btn-link p-0 text-primary" type="button" data-bs-toggle="modal" data-bs-target="#editTicketModal" title="Edit Details" aria-label="Edit Details">
-              <span class="fas fa-edit fs-9"></span>
-            </button>
+            <div class="d-flex align-items-center gap-2">
+              <button class="btn btn-link p-0 text-primary" type="button" title="Print 58mm" aria-label="Print 58mm" onclick="printThermalTicket()">
+                <span class="fas fa-print fs-9"></span>
+              </button>
+              <button class="btn btn-link p-0 text-primary" type="button" data-bs-toggle="modal" data-bs-target="#editTicketModal" title="Edit Details" aria-label="Edit Details">
+                <span class="fas fa-edit fs-9"></span>
+              </button>
+            </div>
           </div>
 
           <!-- Row 2: Ticket ID + Copy Button -->
@@ -913,6 +1105,176 @@ require '../../includes/header.php';
 </div>
 
 <script>
+const thermalTicketData = <?php if ($selectedTicket !== null): ?><?= json_encode([
+  'ticket_no' => (string) ($selectedTicket['ticket_no'] ?? ''),
+  'status_name' => (string) ($selectedTicket['status_name'] ?? ''),
+  'priority_name' => (string) ($selectedTicket['priority_name'] ?? ''),
+  'category_name' => (string) ($selectedTicket['category_name'] ?? ''),
+  'company_name' => (string) ($selectedTicket['company_name'] ?? ''),
+  'branch_name' => (string) ($selectedTicket['branch_name'] ?? ''),
+  'company_logo_icon' => (string) ($selectedTicket['company_logo_icon'] ?? ''),
+  'company_logo_main' => (string) ($selectedTicket['company_logo_main'] ?? ''),
+  'company_phone' => (string) ($selectedTicket['company_phone'] ?? ''),
+  'company_email' => (string) ($selectedTicket['company_email'] ?? ''),
+  'company_address' => (string) ($selectedTicket['company_address'] ?? ''),
+  'assigned_employee_name' => (string) ($selectedTicket['assigned_employee_name'] ?? ''),
+  'assigned_employee_username' => (string) ($selectedTicket['assigned_employee_username'] ?? ''),
+  'created_at' => (string) ($selectedTicket['created_at'] ?? ''),
+  'issue_details' => (string) ($selectedTicket['issue_details'] ?? ''),
+  'customer_username' => (string) ($selectedTicket['customer_username'] ?? ''),
+  'customer_phone' => (string) ($selectedTicket['customer_phone'] ?? ''),
+  'customer_address' => (string) ($selectedTicket['customer_address'] ?? ''),
+  'printed_by_agent' => (string) trim((string) ($_SESSION['admin_full_name'] ?? $_SESSION['admin_username'] ?? 'Current User')),
+], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?><?php else: ?>null<?php endif; ?>;
+
+function escapeThermalHtml(text) {
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function printThermalTicket() {
+  if (!thermalTicketData) {
+    return;
+  }
+
+  const d = thermalTicketData;
+  const companyName = d.company_name || 'ISP360';
+  const agent = d.assigned_employee_name || d.assigned_employee_username || '-';
+  const printedByAgent = d.printed_by_agent || '-';
+  const customerName = d.customer_username || '-';
+  const customerPhone = d.customer_phone || '-';
+  const customerAddress = d.customer_address || '-';
+  const companyPhone = d.company_phone || '-';
+  const companyEmail = d.company_email || '-';
+  const companyAddress = d.company_address || '-';
+  const complaintTime = d.created_at || '-';
+  const companyLogo = d.company_logo_main || d.company_logo_icon || '';
+  const companyLogoUrl = companyLogo ? `${window.location.origin}<?= $appBasePath ?>/${String(companyLogo).replace(/^\/+/, '')}` : '';
+  const printedAt = new Date().toLocaleString();
+
+  const companyHeaderHtml = `
+    ${companyLogoUrl ? `<div class="logo-wrap"><img id="thermalCompanyLogo" src="${escapeThermalHtml(companyLogoUrl)}" alt="${escapeThermalHtml(companyName)} logo"></div>` : ''}
+    <div class="company-title">${escapeThermalHtml(companyName)}</div>
+    <div class="center row">${escapeThermalHtml(companyPhone)}</div>
+    <div class="center row">${escapeThermalHtml(companyEmail)}</div>
+    <div class="center row">${escapeThermalHtml(companyAddress)}</div>
+  `;
+
+  const feedbackRow = (label, options) => `
+    <div class="feedback-block">
+      <div class="row feedback-row"><span class="label">${escapeThermalHtml(label)}:</span></div>
+      ${options.map((option) => `<div class="row feedback-option">[ ] ${escapeThermalHtml(option)}</div>`).join('')}
+    </div>
+  `;
+
+  const receiptHtml = `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Ticket Print</title>
+        <style>
+          @page { size: 58mm auto; margin: 2mm; }
+          body { width: 54mm; margin: 0; font-family: Arial, sans-serif; font-size: 11px; color: #000; }
+          .center { text-align: center; }
+          .line { border-top: 1px dashed #000; margin: 6px 0; }
+          .row { margin: 2px 0; word-wrap: break-word; }
+          .label { font-weight: bold; }
+          .title { font-size: 12px; font-weight: bold; }
+          .section { margin-top: 6px; }
+          .logo-wrap { text-align: center; margin-bottom: 4px; }
+          .logo-wrap img { max-width: 44mm; max-height: 16mm; width: auto; height: auto; filter: grayscale(100%) contrast(180%) brightness(0.92); }
+          .company-title { font-size: 12px; font-weight: bold; text-align: center; }
+          .feedback-row { margin: 4px 0; line-height: 1.5; }
+          .feedback-block { margin: 4px 0; }
+          .feedback-option { margin: 1px 0 1px 8px; }
+          .signature-line { text-align: center; margin: 8px 0 2px; }
+          .signature-label { text-align: center; font-weight: bold; }
+        </style>
+      </head>
+      <body>
+        ${companyHeaderHtml}
+        <div class="line"></div>
+        <div class="center title">Ticket Print</div>
+        <div class="center row">Printed: ${escapeThermalHtml(printedAt)}</div>
+        <div class="center row">Printed By: ${escapeThermalHtml(printedByAgent)}</div>
+        <div class="line"></div>
+
+        <div class="section">
+          <div class="row"><span class="label">Ticket:</span> ${escapeThermalHtml(d.ticket_no || '-')}</div>
+          <div class="row"><span class="label">Status:</span> ${escapeThermalHtml(d.status_name || '-')}</div>
+          <div class="row"><span class="label">Priority:</span> ${escapeThermalHtml(d.priority_name || '-')}</div>
+          <div class="row"><span class="label">Category:</span> ${escapeThermalHtml(d.category_name || '-')}</div>
+          <div class="row"><span class="label">Company:</span> ${escapeThermalHtml(d.company_name || '-')}</div>
+          <div class="row"><span class="label">Branch:</span> ${escapeThermalHtml(d.branch_name || '-')}</div>
+          <div class="row"><span class="label">Agent:</span> ${escapeThermalHtml(agent)}</div>
+          <div class="row"><span class="label">Complain Time:</span> ${escapeThermalHtml(complaintTime)}</div>
+        </div>
+
+        <div class="line"></div>
+        <div class="section">
+          <div class="row label">Issue Details</div>
+          <div class="row">${escapeThermalHtml(d.issue_details || '-')}</div>
+        </div>
+
+        <div class="line"></div>
+        <div class="section">
+          <div class="row label">Customer Details</div>
+          <div class="row"><span class="label">Name:</span> ${escapeThermalHtml(customerName)}</div>
+          <div class="row"><span class="label">Phone:</span> ${escapeThermalHtml(customerPhone)}</div>
+          <div class="row"><span class="label">Address:</span> ${escapeThermalHtml(customerAddress)}</div>
+        </div>
+
+        <div class="line"></div>
+        <div class="section">
+          <div class="row label">Feedback</div>
+          ${feedbackRow('Technician Behaviour', ['Good', 'Average', 'Bad'])}
+          ${feedbackRow('Service', ['Good', 'Average', 'Bad'])}
+          ${feedbackRow('Customer Care', ['Good', 'Average', 'Bad'])}
+          ${feedbackRow('Extra Payment', ['Yes', 'No'])}
+        </div>
+
+        <div class="line"></div>
+        <div class="section">
+          <div class="signature-line">--------------------------</div>
+          <div class="signature-label">Customer Sign</div>
+          <div class="signature-line">--------------------------</div>
+        </div>
+
+        <div class="line"></div>
+        <div class="center row">Thank you</div>
+      </body>
+    </html>
+  `;
+
+  const printWindow = window.open('', '_blank', 'width=360,height=800');
+  if (!printWindow) {
+    return;
+  }
+  printWindow.document.open();
+  printWindow.document.write(receiptHtml);
+  printWindow.document.close();
+
+  const doPrint = () => {
+    printWindow.focus();
+    printWindow.print();
+  };
+
+  printWindow.onload = () => {
+    const logo = printWindow.document.getElementById('thermalCompanyLogo');
+    if (logo && !logo.complete) {
+      logo.onload = () => setTimeout(doPrint, 150);
+      logo.onerror = () => setTimeout(doPrint, 150);
+      return;
+    }
+    setTimeout(doPrint, 150);
+  };
+}
+
 function copyToClipboard(text) {
   navigator.clipboard.writeText(text).then(() => {
     const btn = event.target.closest('button');
