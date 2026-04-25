@@ -10,12 +10,37 @@ use App\Helpers\ispts_ImageHelper;
 
 $pdo = Database::getConnection();
 
+$ispts_has_table = static function (\PDO $pdo, string $table): bool {
+  $stmt = $pdo->prepare(
+    'SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table'
+  );
+  $stmt->bindValue(':table', $table);
+  $stmt->execute();
+
+  return (int) $stmt->fetchColumn() > 0;
+};
+
+$ispts_has_column = static function (\PDO $pdo, string $table, string $column): bool {
+  $stmt = $pdo->prepare(
+    'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column'
+  );
+  $stmt->bindValue(':table', $table);
+  $stmt->bindValue(':column', $column);
+  $stmt->execute();
+
+  return (int) $stmt->fetchColumn() > 0;
+};
+
+$branchesTableExists = $ispts_has_table($pdo, 'branches');
+$partnersTableExists = $ispts_has_table($pdo, 'partners');
+
 // ── CREATE TABLES ─────────────────────────────────────────────────────────────
 
 $pdo->exec(
     "CREATE TABLE IF NOT EXISTS inventory_stock_invoices (
         invoice_id      BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         invoice_number  VARCHAR(40)     NOT NULL,
+      branch_id       BIGINT UNSIGNED NOT NULL DEFAULT 0,
         vendor_id       BIGINT UNSIGNED NOT NULL,
         invoice_date    DATE            NOT NULL,
         invoice_image   VARCHAR(300)    DEFAULT NULL,
@@ -36,6 +61,10 @@ $pdo->exec(
         KEY idx_stock_invoices_date   (invoice_date)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
 );
+
+  if (!$ispts_has_column($pdo, 'inventory_stock_invoices', 'branch_id')) {
+    $pdo->exec('ALTER TABLE inventory_stock_invoices ADD COLUMN branch_id BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER invoice_number');
+  }
 
 $pdo->exec(
     "CREATE TABLE IF NOT EXISTS inventory_stock_invoice_items (
@@ -105,12 +134,25 @@ if (isset($_GET['print_invoice'])) {
     $printId = (int) $_GET['print_invoice'];
   $autoPrint = isset($_GET['auto_print']) && (int) $_GET['auto_print'] === 1;
 
+  $printBranchSelect = $branchesTableExists ? ', b.branch_name' : ", '' AS branch_name";
+  $printBranchJoin = $branchesTableExists ? ' LEFT JOIN branches b ON b.branch_id = si.branch_id' : '';
+  $printCompanySelect = ($branchesTableExists && $partnersTableExists)
+    ? ', COALESCE(p.partner_name, \"\") AS company_name'
+    : ", '' AS company_name";
+  $printCompanyJoin = ($branchesTableExists && $partnersTableExists)
+    ? ' LEFT JOIN partners p ON p.partner_id = b.partner_id'
+    : '';
+
     $pInvStmt = $pdo->prepare(
-        'SELECT si.*, v.vendor_name, v.contact_person, v.phone
-         FROM inventory_stock_invoices si
-         LEFT JOIN inventory_vendors v ON v.vendor_id = si.vendor_id
-         WHERE si.invoice_id = :id
-         LIMIT 1'
+    'SELECT si.*, v.vendor_name, v.contact_person, v.phone'
+    . $printBranchSelect
+    . $printCompanySelect
+    . ' FROM inventory_stock_invoices si
+     LEFT JOIN inventory_vendors v ON v.vendor_id = si.vendor_id'
+    . $printBranchJoin
+    . $printCompanyJoin
+    . ' WHERE si.invoice_id = :id
+     LIMIT 1'
     );
     $pInvStmt->bindValue(':id', $printId, \PDO::PARAM_INT);
     $pInvStmt->execute();
@@ -181,6 +223,9 @@ if (isset($_GET['print_invoice'])) {
 <p><strong>Vendor:</strong> <?= $hn((string) ($pInv['vendor_name'] ?? '')) ?>
    <?php if (!empty($pInv['contact_person'])): ?> &mdash; <?= $hn((string) $pInv['contact_person']) ?><?php endif; ?>
    <?php if (!empty($pInv['phone'])): ?> &mdash; <?= $hn((string) $pInv['phone']) ?><?php endif; ?></p>
+<?php if (!empty($pInv['branch_name'])): ?>
+<p><strong>Branch:</strong> <?= $hn((string) $pInv['branch_name']) ?><?php if (!empty($pInv['company_name'])): ?> &mdash; <?= $hn((string) $pInv['company_name']) ?><?php endif; ?></p>
+<?php endif; ?>
 <?php if (!empty($pInv['ref_employee'])): ?>
 <p><strong>Reference:</strong> <?= $hn((string) $pInv['ref_employee']) ?></p>
 <?php endif; ?>
@@ -297,6 +342,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ── Save Stock Invoice ────────────────────────────────────────────────────
 
     if ($action === 'save_stock_invoice') {
+      $branchId    = isset($_POST['branch_id'])    ? (int) $_POST['branch_id']    : 0;
         $vendorId    = isset($_POST['vendor_id'])    ? (int) $_POST['vendor_id']    : 0;
         $invoiceDate = trim((string) ($_POST['invoice_date'] ?? ''));
         $paymentMode = in_array($_POST['payment_mode'] ?? '', ['cash', 'partial', 'emi'], true)
@@ -319,6 +365,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $dueInterval = in_array($_POST['due_interval'] ?? '', ['days', 'months'], true) ? (string) $_POST['due_interval'] : 'days';
 
         $errors = [];
+  if ($branchId <= 0)     $errors[] = 'Please select a branch.';
         if ($vendorId <= 0)     $errors[] = 'Please select a vendor.';
         if ($invoiceDate === '') $errors[] = 'Invoice date is required.';
         if (empty($rawItems))   $errors[] = 'Please add at least one product item.';
@@ -400,13 +447,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Insert invoice header
                 $invStmt = $pdo->prepare(
                     'INSERT INTO inventory_stock_invoices
-                     (invoice_number, vendor_id, invoice_date, invoice_image, notes, payment_mode,
+                   (invoice_number, branch_id, vendor_id, invoice_date, invoice_image, notes, payment_mode,
                       subtotal, total_discount, grand_total, due_days, emi_count, ref_employee, created_by, status)
                      VALUES
-                     (:invoice_number, :vendor_id, :invoice_date, :invoice_image, :notes, :payment_mode,
+                   (:invoice_number, :branch_id, :vendor_id, :invoice_date, :invoice_image, :notes, :payment_mode,
                       :subtotal, :total_discount, :grand_total, :due_days, :emi_count, :ref_employee, :created_by, 1)'
                 );
                 $invStmt->bindValue(':invoice_number', $invoiceNumber);
+                $invStmt->bindValue(':branch_id',      $branchId,       \PDO::PARAM_INT);
                 $invStmt->bindValue(':vendor_id',      $vendorId,       \PDO::PARAM_INT);
                 $invStmt->bindValue(':invoice_date',   $invoiceDate);
                 $invStmt->bindValue(':invoice_image',  $imageFileName,  \PDO::PARAM_STR);
@@ -559,12 +607,46 @@ $productsAll = $pdo->query(
    ORDER BY p.product_name ASC'
 )->fetchAll(\PDO::FETCH_ASSOC);
 
+  $branches = [];
+  if ($branchesTableExists) {
+    $branchIdColumn = $ispts_has_column($pdo, 'branches', 'branch_id') ? 'branch_id' : ($ispts_has_column($pdo, 'branches', 'id') ? 'id' : '');
+    $branchNameColumn = $ispts_has_column($pdo, 'branches', 'branch_name') ? 'branch_name' : '';
+    $branchPartnerColumn = $ispts_has_column($pdo, 'branches', 'partner_id') ? 'partner_id' : ($ispts_has_column($pdo, 'branches', 'partnerId') ? 'partnerId' : '');
+
+    if ($branchIdColumn !== '' && $branchNameColumn !== '') {
+      $branchStatusCondition = $ispts_has_column($pdo, 'branches', 'status') ? ' WHERE b.status = 1' : '';
+      $branchJoin = '';
+      $branchCompanySelect = ", '' AS company_name";
+
+      if ($partnersTableExists && $branchPartnerColumn !== '') {
+        $partnerIdColumn = $ispts_has_column($pdo, 'partners', 'partner_id') ? 'partner_id' : ($ispts_has_column($pdo, 'partners', 'id') ? 'id' : '');
+        $partnerNameColumn = $ispts_has_column($pdo, 'partners', 'partner_name') ? 'partner_name' : ($ispts_has_column($pdo, 'partners', 'company') ? 'company' : '');
+
+        if ($partnerIdColumn !== '' && $partnerNameColumn !== '') {
+          $branchJoin = ' LEFT JOIN partners p ON p.' . $partnerIdColumn . ' = b.' . $branchPartnerColumn;
+          $branchCompanySelect = ', COALESCE(p.' . $partnerNameColumn . ", '') AS company_name";
+        }
+      }
+
+      $branches = $pdo->query(
+        'SELECT b.' . $branchIdColumn . ' AS branch_id, b.' . $branchNameColumn . ' AS branch_name'
+        . $branchCompanySelect
+        . ' FROM branches b'
+        . $branchJoin
+        . $branchStatusCondition
+        . ' ORDER BY b.' . $branchNameColumn . ' ASC'
+      )->fetchAll(\PDO::FETCH_ASSOC);
+    }
+  }
+
 $preSelectedVendorId = isset($_GET['new_vendor']) ? (int) $_GET['new_vendor'] : 0;
+  $selectedBranchId = isset($_POST['branch_id']) ? (int) $_POST['branch_id'] : 0;
 
 $jsCategories    = json_encode(array_values($categoriesAll),    JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
 $jsSubCategories = json_encode(array_values($subCategoriesAll), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
 $jsProducts      = json_encode(array_values($productsAll),      JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
 $jsVendors       = json_encode(array_values($vendors),          JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+  $jsBranches      = json_encode(array_values($branches),         JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
 
 require '../../includes/header.php';
 ?>
@@ -642,15 +724,33 @@ require '../../includes/header.php';
 
   <!-- ── Product Items ───────────────────────────────────────────────────── -->
   <div class="card mb-3">
-    <div class="card-header border-bottom border-200 d-flex align-items-center justify-content-between">
+    <div class="card-header border-bottom border-200 d-flex align-items-center justify-content-between gap-3 flex-wrap">
       <h6 class="mb-0">Product Items</h6>
-      <button type="button" class="btn btn-sm btn-falcon-success" id="addItemBtn">
-        <span class="fas fa-plus me-1"></span>Add Item Row
-      </button>
+      <div class="d-flex align-items-end gap-2 flex-wrap ms-auto">
+        <div style="min-width: 280px;">
+          <label class="form-label fs-10 mb-1" for="branch_id">Select Branch <span class="text-danger">*</span></label>
+          <select class="form-select form-select-sm" id="branch_id" name="branch_id" required>
+            <option value="" disabled <?= $selectedBranchId === 0 ? 'selected' : '' ?>>Select Branch</option>
+            <?php if (empty($branches)): ?>
+              <option value="" disabled>No active branches available</option>
+            <?php else: ?>
+              <?php foreach ($branches as $branch): ?>
+                <?php $branchCompanyName = trim((string) ($branch['company_name'] ?? '')); ?>
+                <option value="<?= (int) $branch['branch_id'] ?>" <?= $selectedBranchId === (int) $branch['branch_id'] ? 'selected' : '' ?>>
+                  <?= htmlspecialchars((string) $branch['branch_name'], ENT_QUOTES, 'UTF-8') ?><?= $branchCompanyName !== '' ? ' | ' . htmlspecialchars($branchCompanyName, ENT_QUOTES, 'UTF-8') : '' ?>
+                </option>
+              <?php endforeach; ?>
+            <?php endif; ?>
+          </select>
+        </div>
+        <button type="button" class="btn btn-sm btn-falcon-success" id="addItemBtn">
+          <span class="fas fa-plus me-1"></span>Add Item Row
+        </button>
+      </div>
     </div>
     <div class="card-body p-0" id="itemRowsContainer">
       <div class="text-center text-600 py-4 fs-10" id="noItemsPlaceholder">
-        Click <strong>Add Item Row</strong> to begin adding products.
+        Select a branch first, then click <strong>Add Item Row</strong> to begin adding products.
       </div>
     </div>
     <div class="card-footer border-top border-200 bg-body-tertiary">
@@ -855,6 +955,7 @@ require '../../includes/header.php';
       </div>
       <div class="card-body">
         <div class="mb-3">
+          <div class="d-flex justify-content-between fs-10"><span class="text-600">Branch</span><span class="fw-semibold text-end" id="previewBranch">-</span></div>
           <div class="d-flex justify-content-between fs-10"><span class="text-600">Vendor</span><span class="fw-semibold text-end" id="previewVendor">-</span></div>
           <div class="d-flex justify-content-between fs-10"><span class="text-600">Date</span><span class="fw-semibold" id="previewDate">-</span></div>
           <div class="d-flex justify-content-between fs-10"><span class="text-600">Reference</span><span class="fw-semibold text-end" id="previewReference">-</span></div>
@@ -901,6 +1002,7 @@ require '../../includes/header.php';
   var CATS     = <?= $jsCategories ?>;
   var SUB_CATS = <?= $jsSubCategories ?>;
   var PRODUCTS = <?= $jsProducts ?>;
+  var BRANCHES = <?= $jsBranches ?>;
   var VENDORS  = <?= $jsVendors ?>;
 
   var rowCounter = 0;
@@ -929,11 +1031,50 @@ require '../../includes/header.php';
     return selected ? String(selected.value || 'cash') : 'cash';
   }
 
+  function hasSelectedBranch() {
+    var branchSelect = document.getElementById('branch_id');
+    return !!(branchSelect && String(branchSelect.value || '').trim() !== '');
+  }
+
+  function updateBranchRequirementState() {
+    var addItemBtn = document.getElementById('addItemBtn');
+    var placeholder = document.getElementById('noItemsPlaceholder');
+    var hasItems = !!document.querySelector('.item-row');
+    var branchSelected = hasSelectedBranch();
+
+    if (addItemBtn) {
+      addItemBtn.disabled = !branchSelected;
+      addItemBtn.title = branchSelected ? '' : 'Select branch first';
+    }
+
+    if (placeholder && !hasItems) {
+      placeholder.innerHTML = branchSelected
+        ? 'Click <strong>Add Item Row</strong> to begin adding products.'
+        : 'Select a branch first, then click <strong>Add Item Row</strong> to begin adding products.';
+    }
+  }
+
   function updatePreview() {
+    var branchId = textValue('branch_id');
     var vendorId = textValue('vendor_id');
     var invoiceDate = textValue('invoice_date');
     var refEmp = textValue('ref_employee');
     var mode = paymentModeValue();
+
+    var branchName = '-';
+    if (branchId !== '') {
+      var foundBranch = BRANCHES.find(function (b) {
+        return String(b.branch_id) === String(branchId);
+      });
+      if (foundBranch) {
+        branchName = String(foundBranch.branch_name || '-');
+        if (String(foundBranch.company_name || '').trim() !== '') {
+          branchName += ' | ' + String(foundBranch.company_name || '').trim();
+        }
+      } else {
+        branchName = selectedText('branch_id') || '-';
+      }
+    }
 
     var vendorName = '-';
     if (vendorId !== '') {
@@ -942,6 +1083,7 @@ require '../../includes/header.php';
       });
       vendorName = foundVendor ? String(foundVendor.vendor_name || '-') : selectedText('vendor_id') || '-';
     }
+    document.getElementById('previewBranch').textContent = branchName;
 
     var terms = '-';
     if (mode === 'partial') {
@@ -1248,6 +1390,17 @@ require '../../includes/header.php';
 
   // ── ADD ITEM ROW ──────────────────────────────────────────────────────────────
   document.getElementById('addItemBtn').addEventListener('click', function () {
+    var branchSelect = document.getElementById('branch_id');
+    if (!hasSelectedBranch()) {
+      if (branchSelect) {
+        branchSelect.focus();
+        if (typeof branchSelect.reportValidity === 'function') {
+          branchSelect.reportValidity();
+        }
+      }
+      return;
+    }
+
     var idx = rowCounter++;
     document.getElementById('noItemsPlaceholder').style.display = 'none';
     document.getElementById('itemRowsContainer').insertAdjacentHTML('beforeend', buildItemRowHtml(idx));
@@ -1428,6 +1581,18 @@ require '../../includes/header.php';
       var vSel = document.getElementById('vendor_id');
       if (vSel) vSel.value = String(preVendor);
     }
+    var branchSelect = document.getElementById('branch_id');
+    if (branchSelect) {
+      branchSelect.addEventListener('input', function () {
+        updateBranchRequirementState();
+        updatePreview();
+      });
+      branchSelect.addEventListener('change', function () {
+        updateBranchRequirementState();
+        updatePreview();
+      });
+    }
+    updateBranchRequirementState();
     updatePreview();
   })();
 

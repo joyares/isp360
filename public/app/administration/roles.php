@@ -367,6 +367,7 @@ require '../../includes/header.php';
                   <?php
                   $roleTypeOptions = [
                       'super_admin' => 'Super Admin',
+                      'admin' => 'Admin',
                       'staff' => 'Staff',
                       'manager' => 'Manager',
                       'partner' => 'Partner',

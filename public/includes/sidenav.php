@@ -121,6 +121,7 @@
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/locations.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Locations</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/roles.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Roles</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/admin-users.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Admin Users</span></div></a></li>
+                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/staff-users.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Staff Users</span></div></a></li>
                   </ul>
                 </li>
                 <li class="nav-item"><a class="nav-link dropdown-indicator collapsed" href="#company-mgmt" role="button" data-bs-toggle="collapse" aria-expanded="false" aria-controls="company-mgmt"><div class="d-flex align-items-center"><span class="nav-link-icon"><span class="fas fa-building"></span></span><span class="nav-link-text ps-1">Company Mgmt</span></div></a>
