@@ -8,6 +8,8 @@ use RuntimeException;
 
 class BaseController
 {
+    private const RBAC_HELPER_PATH = __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'Helpers' . DIRECTORY_SEPARATOR . 'rbac_helper.php';
+
     protected string $viewsRoot;
 
     protected string $layoutsRoot;
@@ -16,6 +18,10 @@ class BaseController
     {
         $this->viewsRoot = $viewsRoot ?? dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'views';
         $this->layoutsRoot = $this->viewsRoot . DIRECTORY_SEPARATOR . 'layouts';
+
+        if (is_file(self::RBAC_HELPER_PATH)) {
+            require_once self::RBAC_HELPER_PATH;
+        }
     }
 
     /**
@@ -103,5 +109,23 @@ class BaseController
         }
 
         require $path;
+    }
+
+    /**
+     * Enforce that the current user holds the given permission slug.
+     * Throws a RuntimeException with HTTP 403 context when permission is absent.
+     */
+    protected function requirePermission(string $slug): void
+    {
+        if (!function_exists('has_permission')) {
+            throw new RuntimeException('RBAC helper not loaded.');
+        }
+
+        if (!has_permission($slug)) {
+            http_response_code(403);
+            throw new RuntimeException(
+                sprintf('Access denied: permission "%s" is required.', $slug)
+            );
+        }
     }
 }
