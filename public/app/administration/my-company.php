@@ -115,6 +115,11 @@ $pdo->exec(
 $alert       = null;
 $editId      = isset($_GET['edit_id']) ? (int) $_GET['edit_id'] : 0;
 $currentPath = $_SERVER['PHP_SELF'] ?? '/app/administration/my-company.php';
+$activeTab   = (string) ($_GET['tab'] ?? 'company');
+
+if (!in_array($activeTab, ['company', 'partners', 'branches'], true)) {
+  $activeTab = 'company';
+}
 
 $uploadDirectory = dirname(__DIR__, 2) . '/assets/uploads/mycompany';
 
@@ -468,7 +473,10 @@ $activeRoles = $activeRolesStmt->fetchAll(\PDO::FETCH_ASSOC);
 
 $partnersStmt = $pdo->query(
   'SELECT p.' . $partnerIdColumn . ' AS id, p.firstname, p.lastname, p.username, p.email, p.phone,
-      p.company, p.' . $partnerEnabledColumn . ' AS enabled, p.user_type, p.last_login, p.created_at,
+  p.company, p.logo_icon, p.logo_main, p.contact_person_name, p.contact_person_phone,
+  p.contact_person_alt_phone, p.contact_person_email, p.address, p.notes,
+  p.branch_access_type, p.partner_access_type, p.departmentId, p.partnerId,
+  p.' . $partnerEnabledColumn . ' AS enabled, p.user_type, p.last_login, p.created_at,
             r.role_name,
             pp.username AS parent_username
      FROM mycompany p
@@ -481,38 +489,384 @@ $partners = $partnersStmt->fetchAll(\PDO::FETCH_ASSOC);
 
 $userTypeLabels = [1 => 'Standard', 2 => 'Premium', 3 => 'Reseller'];
 
+$partnerTabRows = [];
+$partnerTabParentOptions = [];
+try {
+  $partnerTabRowsStmt = $pdo->query(
+    'SELECT p.id, p.firstname, p.lastname, p.username, p.email, p.phone, p.company,
+        p.enabled, p.user_type, p.last_login, r.role_name
+     FROM partners p
+     LEFT JOIN roles r ON r.role_id = p.roleId
+     WHERE p.deleted_at IS NULL
+     ORDER BY p.id DESC'
+  );
+  $partnerTabRows = $partnerTabRowsStmt ? $partnerTabRowsStmt->fetchAll(\PDO::FETCH_ASSOC) : [];
+
+  $partnerTabParentStmt = $pdo->query(
+    'SELECT id, firstname, lastname, username, company
+     FROM partners
+     WHERE enabled = 1 AND deleted_at IS NULL
+     ORDER BY id ASC'
+  );
+  $partnerTabParentOptions = $partnerTabParentStmt ? $partnerTabParentStmt->fetchAll(\PDO::FETCH_ASSOC) : [];
+} catch (\Throwable $e) {
+  $partnerTabRows = [];
+  $partnerTabParentOptions = [];
+}
+
 require '../../includes/header.php';
 ?>
-<nav class="mb-2" aria-label="breadcrumb">
-  <ol class="breadcrumb">
-    <li class="breadcrumb-item"><a href="<?= $appBasePath ?>/index.php">Home</a></li>
-    <li class="breadcrumb-item"><a href="#">Administration</a></li>
-    <li class="breadcrumb-item active">My Company</li>
-  </ol>
-</nav>
-
-<div class="page-header mb-3">
-  <div class="row align-items-center">
-    <div class="col">
-      <h1 class="page-header-title">My Company</h1>
+<div class="row gx-3 gy-3">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header border-bottom border-200">
+        <h5 class="mb-0">My Company</h5>
+      </div>
+      <div class="card-body">
+        <p class="text-700 mb-0">Manage company profiles, contact details, access settings, and branding from one place.</p>
+      </div>
     </div>
   </div>
-</div>
 
-<?php if ($alert): ?>
-  <div class="alert alert-<?= htmlspecialchars($alert['type']) ?> py-2" role="alert">
-    <?= htmlspecialchars($alert['message']) ?>
+  <?php if ($alert): ?>
+    <div class="col-12">
+      <div class="alert alert-<?= htmlspecialchars($alert['type']) ?> py-2" role="alert">
+        <?= htmlspecialchars($alert['message']) ?>
+      </div>
+    </div>
+  <?php endif; ?>
+
+  <div class="col-12">
+    <ul class="nav nav-pills mb-3">
+      <li class="nav-item"><a class="nav-link <?= $activeTab === 'company' ? 'active' : '' ?>" href="<?= $appBasePath ?>/app/administration/my-company.php?tab=company">My Company</a></li>
+      <li class="nav-item"><a class="nav-link <?= $activeTab === 'partners' ? 'active' : '' ?>" href="<?= $appBasePath ?>/app/administration/my-company.php?tab=partners">Partners</a></li>
+      <li class="nav-item"><a class="nav-link <?= $activeTab === 'branches' ? 'active' : '' ?>" href="<?= $appBasePath ?>/app/administration/my-company.php?tab=branches">Branches</a></li>
+    </ul>
   </div>
-<?php endif; ?>
 
-<div class="row g-3">
+  <?php if ($activeTab === 'company'): ?>
+  <div class="col-xl-6" id="company-list">
+    <div class="card h-100 mb-3">
+      <div class="card-header bg-body-tertiary d-flex flex-between-center py-2">
+        <h6 class="mb-0">Mother Company</h6>
+        <div class="dropdown font-sans-serif position-static d-inline-block btn-reveal-trigger">
+          <button class="btn btn-link text-600 btn-sm dropdown-toggle btn-reveal dropdown-caret-none" type="button" id="dropdown-mother-company" data-bs-toggle="dropdown" data-boundary="window" aria-haspopup="true" aria-expanded="false" data-bs-reference="parent">
+            <span class="fas fa-ellipsis-h fs-10"></span>
+          </button>
+          <div class="dropdown-menu dropdown-menu-end border py-2" aria-labelledby="dropdown-mother-company">
+            <a class="dropdown-item" href="<?= htmlspecialchars($currentPath) ?>?tab=company#partner-form">View</a>
+            <a class="dropdown-item" href="<?= htmlspecialchars($currentPath) ?>?tab=company#partner-form">Edit</a>
+            <div class="dropdown-divider"></div>
+            <a class="dropdown-item text-danger" href="<?= htmlspecialchars($currentPath) ?>?tab=company">Refresh</a>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="row g-3 h-100">
+          <?php if (empty($partners)): ?>
+            <div class="col-12">
+              <div class="text-center py-3 text-600">No company profile found.</div>
+            </div>
+          <?php else: ?>
+            <?php foreach ($partners as $p): ?>
+              <?php
+                $fullName = trim(((string) ($p['firstname'] ?? '')) . ' ' . ((string) ($p['lastname'] ?? '')));
+                $iconLogoUrl = !empty($p['logo_icon']) ? $appBasePath . '/' . ltrim((string) $p['logo_icon'], '/') : '';
+                $mainLogoUrl = !empty($p['logo_main']) ? $appBasePath . '/' . ltrim((string) $p['logo_main'], '/') : '';
+              ?>
+              <div class="col-sm-6 col-lg-12">
+                <div class="card position-relative rounded-4">
+                  <div class="bg-holder bg-card rounded-4" style="background-image:url(<?= htmlspecialchars($appBasePath, ENT_QUOTES, 'UTF-8') ?>/assets/img/icons/spot-illustrations/corner-2.png);"></div>
+                  <div class="card-body p-3 pt-4 pt-xxl-4">
+                    <!-- Row 1: Only logo -->
+                    <div class="row mb-2">
+                      <div class="col text-center">
+                        <?php if ($mainLogoUrl !== ''): ?>
+                          <img src="<?= htmlspecialchars($mainLogoUrl, ENT_QUOTES, 'UTF-8') ?>" alt="Main logo" height="72" style="max-width: 240px; object-fit: contain;">
+                        <?php else: ?>
+                          <span class="fas fa-building text-primary fs-4"></span>
+                        <?php endif; ?>
+                      </div>
+                    </div>
 
-  <!-- ═══════════════════ LIST (left col-xl-8) ═══════════════════ -->
-  <div class="col-xl-8">
+                    <!-- Row 2: 2 columns: Contact Person | Company Info -->
+                    <div class="row mb-2">
+                      <div class="col-6">
+                        <div class="fs-10 text-600 mb-1"><strong>Contact Person</strong></div>
+                        <div class="fs-10 text-600 mb-0"><?= htmlspecialchars((string) (($p['contact_person_name'] ?? '') !== '' ? $p['contact_person_name'] : '-'), ENT_QUOTES, 'UTF-8') ?></div>
+                        <div class="fs-10 text-600 mb-0"><?= htmlspecialchars((string) (($p['contact_person_phone'] ?? '') !== '' ? $p['contact_person_phone'] : '-'), ENT_QUOTES, 'UTF-8') ?></div>
+                        <div class="fs-10 text-600 mb-0"><?= htmlspecialchars((string) (($p['contact_person_alt_phone'] ?? '') !== '' ? $p['contact_person_alt_phone'] : '-'), ENT_QUOTES, 'UTF-8') ?></div>
+                        <div class="fs-10 text-600 mb-0"><?= htmlspecialchars((string) (($p['contact_person_email'] ?? '') !== '' ? $p['contact_person_email'] : '-'), ENT_QUOTES, 'UTF-8') ?></div>
+                      </div>
+                      <div class="col-6">
+                        <h6 class="text-primary font-base lh-1 mb-1"><?= htmlspecialchars((string) ($p['company'] ?? '-'), ENT_QUOTES, 'UTF-8') ?></h6>
+                        <h6 class="fs-11 fw-semi-bold text-facebook mb-1"><?= htmlspecialchars($fullName !== '' ? $fullName : '-', ENT_QUOTES, 'UTF-8') ?></h6>
+                        <div class="fs-10 text-600 mb-0"><?= htmlspecialchars((string) (($p['phone'] ?? '') !== '' ? $p['phone'] : '-'), ENT_QUOTES, 'UTF-8') ?></div>
+                        <div class="fs-10 text-600 mb-0"><?= htmlspecialchars((string) (($p['address'] ?? '') !== '' ? $p['address'] : '-'), ENT_QUOTES, 'UTF-8') ?></div>
+                        <div class="fs-10 text-600 mb-0"><?= htmlspecialchars((string) (($p['email'] ?? '') !== '' ? $p['email'] : '-'), ENT_QUOTES, 'UTF-8') ?></div>
+                      </div>
+                    </div>
+
+                    <!-- Row 3: Role, Type, Partner Access -->
+                    <div class="row mb-2 g-2 fs-10 font-sans-serif fw-medium">
+                      <div class="col-4"><span class="text-600">Role:</span><br><?= htmlspecialchars((string) (($p['role_name'] ?? '') !== '' ? $p['role_name'] : '-'), ENT_QUOTES, 'UTF-8') ?></div>
+                      <div class="col-4"><span class="text-600">Type:</span><br><?= htmlspecialchars((string) ($userTypeLabels[(int) ($p['user_type'] ?? 1)] ?? 'Standard'), ENT_QUOTES, 'UTF-8') ?></div>
+                      <div class="col-4"><span class="text-600">Partner Access:</span><br><?= htmlspecialchars((string) (($p['partner_access_type'] ?? '') !== '' ? $p['partner_access_type'] : '-'), ENT_QUOTES, 'UTF-8') ?></div>
+                    </div>
+
+                    <!-- Row 4: Branch Access, Notes -->
+                    <div class="row mb-2 g-2 fs-10 font-sans-serif fw-medium">
+                      <div class="col-4"><span class="text-600">Branch Access:</span><br><?= htmlspecialchars((string) (($p['branch_access_type'] ?? '') !== '' ? $p['branch_access_type'] : '-'), ENT_QUOTES, 'UTF-8') ?></div>
+                      <div class="col-8"><span class="text-600">Notes:</span><br><?= htmlspecialchars((string) (($p['notes'] ?? '') !== '' ? $p['notes'] : '-'), ENT_QUOTES, 'UTF-8') ?></div>
+                    </div>
+
+                    <!-- Row 5: Active badge and Edit icon -->
+                    <div class="row mt-3">
+                      <div class="col text-start">
+                        <small class="badge rounded <?= (int) ($p['enabled'] ?? 0) === 1 ? 'badge-subtle-success' : 'badge-subtle-danger' ?>">
+                          <?= (int) ($p['enabled'] ?? 0) === 1 ? 'Active' : 'Inactive' ?>
+                        </small>
+                        <a class="btn btn-link p-0 ms-2 align-middle" href="<?= htmlspecialchars($currentPath) ?>?tab=company&edit_id=<?= (int) $p['id'] ?>#partner-form" data-bs-toggle="tooltip" data-bs-placement="top" title="Edit">
+                          <span class="fas fa-edit text-500"></span>
+                        </a>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+            <?php endforeach; ?>
+          <?php endif; ?>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-xl-6" id="partner-form">
     <div class="card h-100">
       <div class="card-header border-bottom border-200 d-flex align-items-center justify-content-between">
-        <h5 class="mb-0">All Company Profiles</h5>
-        <span class="badge badge-subtle-primary fs-11"><?= count($partners) ?> total</span>
+        <h6 class="mb-0"><?= $formData['id'] > 0 ? 'Update Company Profile' : 'Add Company Profile' ?></h6>
+      </div>
+      <div class="card-body">
+        <form method="post" action="<?= htmlspecialchars($currentPath) ?>?tab=company#partner-form" class="row g-2" enctype="multipart/form-data">
+          <input type="hidden" name="action" value="save_mycompany" />
+          <input type="hidden" name="id"     value="<?= (int) $formData['id'] ?>" />
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pEmail" name="email" type="email" placeholder="email@example.com"
+                     value="<?= htmlspecialchars($formData['email']) ?>" />
+              <label for="pEmail">Email</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pPhone" name="phone" type="text" placeholder="Phone number"
+                     value="<?= htmlspecialchars($formData['phone']) ?>" />
+              <label for="pPhone">Phone</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pCompany" name="company" type="text" placeholder="Company name"
+                     value="<?= htmlspecialchars($formData['company']) ?>" />
+              <label for="pCompany">Company</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pContactPersonName" name="contact_person_name" type="text" placeholder="Contact person name"
+                     value="<?= htmlspecialchars($formData['contact_person_name']) ?>" />
+              <label for="pContactPersonName">Contact Person Name</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pContactPersonPhone" name="contact_person_phone" type="text" placeholder="Primary phone"
+                     value="<?= htmlspecialchars($formData['contact_person_phone']) ?>" />
+              <label for="pContactPersonPhone">Contact Person Phone</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pContactPersonAltPhone" name="contact_person_alt_phone" type="text" placeholder="Alternative phone"
+                     value="<?= htmlspecialchars($formData['contact_person_alt_phone']) ?>" />
+              <label for="pContactPersonAltPhone">Alternative Phone</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pContactPersonEmail" name="contact_person_email" type="email" placeholder="contact@example.com"
+                     value="<?= htmlspecialchars($formData['contact_person_email']) ?>" />
+              <label for="pContactPersonEmail">Contact Person Email</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pAddress" name="address" type="text" placeholder="Address"
+                     value="<?= htmlspecialchars($formData['address']) ?>" />
+              <label for="pAddress">Address</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <textarea class="form-control" id="pNotes" name="notes" placeholder="Notes" style="height: 58px;"><?= htmlspecialchars($formData['notes']) ?></textarea>
+              <label for="pNotes">Notes</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pLogoIcon" name="logo_icon" type="file" accept="image/*" placeholder="Icon Logo (100x100 px)" />
+              <label for="pLogoIcon">Icon Logo (100x100 px)</label>
+            </div>
+            <?php if ($formData['logo_icon'] !== ''): ?>
+              <div class="mt-2">
+                <img src="<?= htmlspecialchars($appBasePath . '/' . ltrim($formData['logo_icon'], '/')) ?>" alt="Icon logo" style="width: 100px; height: 100px; object-fit: contain;">
+              </div>
+            <?php endif; ?>
+          </div>
+
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pLogoMain" name="logo_main" type="file" accept="image/*" placeholder="Main Logo (300x100 px)" />
+              <label for="pLogoMain">Main Logo (300x100 px)</label>
+            </div>
+            <?php if ($formData['logo_main'] !== ''): ?>
+              <div class="mt-2">
+                <img src="<?= htmlspecialchars($appBasePath . '/' . ltrim($formData['logo_main'], '/')) ?>" alt="Main logo" style="max-width: 300px; height: auto;">
+              </div>
+            <?php endif; ?>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pContactPersonImg" name="contact_person_img" type="file" accept="image/*" placeholder="Contact Person IMG (200x300 px)" />
+              <label for="pContactPersonImg">Contact Person IMG (200x300 px)</label>
+            </div>
+            <?php if (!empty($formData['contact_person_img'])): ?>
+              <div class="mt-2">
+                <img src="<?= htmlspecialchars($appBasePath . '/' . ltrim($formData['contact_person_img'], '/')) ?>" alt="Contact Person IMG" style="width: 200px; height: 300px; object-fit: cover;">
+              </div>
+            <?php endif; ?>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <select class="form-select" id="pUserType" name="user_type" aria-label="User Type">
+                <?php foreach ($userTypeLabels as $val => $label): ?>
+                  <option value="<?= $val ?>" <?= (int) $formData['user_type'] === $val ? 'selected' : '' ?>>
+                    <?= $label ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+              <label for="pUserType">User Type</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <select class="form-select" id="pRole" name="roleId" aria-label="Role">
+                <option value="0" <?= (int) $formData['roleId'] === 0 ? 'selected' : '' ?>>Select role</option>
+                <?php foreach ($activeRoles as $role): ?>
+                  <option value="<?= (int) $role['role_id'] ?>"
+                    <?= (int) $formData['roleId'] === (int) $role['role_id'] ? 'selected' : '' ?>>
+                    <?= htmlspecialchars((string) $role['role_name']) ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+              <label for="pRole">Role</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <select class="form-select" id="pParent" name="parentId" aria-label="Parent Partner">
+                <option value="0">None</option>
+                <?php foreach ($activePartners as $ap): ?>
+                  <option value="<?= (int) $ap['id'] ?>"
+                    <?= (int) $formData['parentId'] === (int) $ap['id'] ? 'selected' : '' ?>>
+                    #<?= (int) $ap['id'] ?> —
+                    <?= htmlspecialchars(trim(($ap['firstname'] ?? '') . ' ' . ($ap['lastname'] ?? '')) ?: (string) $ap['username']) ?>
+                    <?php if (!empty($ap['company'])): ?>(<?= htmlspecialchars((string) $ap['company']) ?>)<?php endif; ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+              <label for="pParent">Parent Partner</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pBranchAccess" name="branch_access_type" type="text" placeholder="0"
+                     value="<?= htmlspecialchars($formData['branch_access_type']) ?>" />
+              <label for="pBranchAccess">Branch Access</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pPartnerAccess" name="partner_access_type" type="text" placeholder="0"
+                     value="<?= htmlspecialchars($formData['partner_access_type']) ?>" />
+              <label for="pPartnerAccess">Partner Access</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pDept" name="departmentId" type="number" min="0" placeholder="0"
+                     value="<?= (int) $formData['departmentId'] ?>" />
+              <label for="pDept">Department ID</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pPartnerRef" name="partnerId" type="number" min="0" placeholder="0"
+                     value="<?= (int) $formData['partnerId'] ?>" />
+              <label for="pPartnerRef">Partner Ref ID</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="border rounded px-3 py-2 h-100 d-flex align-items-center justify-content-between">
+              <span class="text-700">Status</span>
+              <div class="form-check form-switch m-0">
+                <input class="form-check-input" type="checkbox" id="pEnabled" name="enabled" value="1"
+                       <?= (int) $formData['enabled'] === 1 ? 'checked' : '' ?> />
+                <label class="form-check-label" for="pEnabled">Active</label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Submit -->
+          <div class="col-12 d-flex justify-content-end gap-2 mt-2">
+            <a class="btn btn-falcon-default btn-sm" href="<?= htmlspecialchars($currentPath) ?>?tab=company#partner-form">Reset</a>
+            <button class="btn btn-primary btn-sm" type="submit">
+              <?= $formData['id'] > 0 ? 'Update' : 'Add' ?>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <?php endif; ?>
+
+  <?php if ($activeTab === 'partners'): ?>
+  <div class="col-xl-6">
+    <div class="card h-100">
+      <div class="card-header border-bottom border-200 d-flex align-items-center justify-content-between">
+        <h6 class="mb-0">All Partners</h6>
+        <span class="badge badge-subtle-primary fs-11"><?= count($partnerTabRows) ?> total</span>
       </div>
       <div class="card-body p-0">
         <div class="table-responsive scrollbar">
@@ -532,53 +886,47 @@ require '../../includes/header.php';
               </tr>
             </thead>
             <tbody>
-              <?php if (empty($partners)): ?>
+              <?php if (empty($partnerTabRows)): ?>
                 <tr>
-                  <td colspan="10" class="text-center py-3 text-600">No company profile found.</td>
+                  <td colspan="10" class="text-center py-3 text-600">No partners found.</td>
                 </tr>
               <?php else: ?>
-                <?php foreach ($partners as $p): ?>
+                <?php foreach ($partnerTabRows as $pr): ?>
                   <tr>
                     <td>
                       <a class="btn btn-link p-0 me-1"
-                         href="<?= htmlspecialchars($currentPath) ?>?edit_id=<?= (int) $p['id'] ?>#partner-form"
+                         href="<?= htmlspecialchars($currentPath) ?>?tab=partners#partner-tab-form"
                          data-bs-toggle="tooltip" data-bs-placement="top" title="Edit">
                         <span class="fas fa-edit text-500"></span>
                       </a>
-                      <form method="post" class="d-inline align-middle">
-                        <input type="hidden" name="action"        value="toggle_mycompany_status" />
-                        <input type="hidden" name="partner_id"    value="<?= (int) $p['id'] ?>" />
-                        <input type="hidden" name="target_enabled" value="<?= (int) $p['enabled'] === 1 ? '0' : '1' ?>" />
-                        <div class="form-check form-switch d-inline-flex m-0"
-                             data-bs-toggle="tooltip" data-bs-placement="top" title="Toggle Active/Inactive">
-                          <input class="form-check-input" type="checkbox"
-                                 id="partnerEnabled<?= (int) $p['id'] ?>"
-                                 value="1"
-                                 <?= (int) $p['enabled'] === 1 ? 'checked' : '' ?>
-                                 onchange="this.form.submit()">
-                        </div>
-                      </form>
+                      <div class="form-check form-switch d-inline-flex m-0"
+                           data-bs-toggle="tooltip" data-bs-placement="top" title="Toggle Active/Inactive">
+                        <input class="form-check-input" type="checkbox"
+                               id="partnerTabEnabled<?= (int) ($pr['id'] ?? 0) ?>"
+                               value="1"
+                               <?= (int) ($pr['enabled'] ?? 0) === 1 ? 'checked' : '' ?>>
+                      </div>
                     </td>
-                    <td><?= (int) $p['id'] ?></td>
-                    <td><?= htmlspecialchars(trim(($p['firstname'] ?? '') . ' ' . ($p['lastname'] ?? ''))) ?: '-' ?></td>
-                    <td><?= htmlspecialchars((string) $p['username']) ?></td>
-                    <td><?= htmlspecialchars((string) ($p['company'] ?: '-')) ?></td>
+                    <td><?= (int) ($pr['id'] ?? 0) ?></td>
+                    <td><?= htmlspecialchars(trim(((string) ($pr['firstname'] ?? '')) . ' ' . ((string) ($pr['lastname'] ?? ''))), ENT_QUOTES, 'UTF-8') ?: '-' ?></td>
+                    <td><?= htmlspecialchars((string) ($pr['username'] ?? ''), ENT_QUOTES, 'UTF-8') ?></td>
+                    <td><?= htmlspecialchars((string) (($pr['company'] ?? '') !== '' ? $pr['company'] : '-'), ENT_QUOTES, 'UTF-8') ?></td>
                     <td>
-                      <?= htmlspecialchars((string) ($p['email'] ?: '-')) ?>
-                      <?php if (!empty($p['phone'])): ?>
-                        <br><small class="text-600"><?= htmlspecialchars((string) $p['phone']) ?></small>
+                      <?= htmlspecialchars((string) (($pr['email'] ?? '') !== '' ? $pr['email'] : '-'), ENT_QUOTES, 'UTF-8') ?>
+                      <?php if (!empty($pr['phone'])): ?>
+                        <br><small class="text-600"><?= htmlspecialchars((string) $pr['phone'], ENT_QUOTES, 'UTF-8') ?></small>
                       <?php endif; ?>
                     </td>
-                    <td><?= htmlspecialchars((string) ($p['role_name'] ?: '-')) ?></td>
-                    <td><?= htmlspecialchars($userTypeLabels[(int) ($p['user_type'] ?? 1)] ?? 'Standard') ?></td>
+                    <td><?= htmlspecialchars((string) (($pr['role_name'] ?? '') !== '' ? $pr['role_name'] : '-'), ENT_QUOTES, 'UTF-8') ?></td>
+                    <td><?= htmlspecialchars($userTypeLabels[(int) ($pr['user_type'] ?? 1)] ?? 'Standard', ENT_QUOTES, 'UTF-8') ?></td>
                     <td class="text-center">
-                      <?php if ((int) $p['enabled'] === 1): ?>
+                      <?php if ((int) ($pr['enabled'] ?? 0) === 1): ?>
                         <span class="badge badge-subtle-success">Active</span>
                       <?php else: ?>
                         <span class="badge badge-subtle-danger">Inactive</span>
                       <?php endif; ?>
                     </td>
-                    <td><?= $p['last_login'] ? htmlspecialchars(date('Y-m-d h:i A', strtotime((string) $p['last_login']))) : '-' ?></td>
+                    <td><?= !empty($pr['last_login']) ? htmlspecialchars(date('Y-m-d h:i A', strtotime((string) $pr['last_login'])), ENT_QUOTES, 'UTF-8') : '-' ?></td>
                   </tr>
                 <?php endforeach; ?>
               <?php endif; ?>
@@ -589,76 +937,92 @@ require '../../includes/header.php';
     </div>
   </div>
 
-  <!-- ═══════════════════ FORM (right col-xl-4) ═══════════════════ -->
-  <div class="col-xl-4" id="partner-form">
+  <div class="col-xl-6" id="partner-tab-form">
     <div class="card h-100">
       <div class="card-header border-bottom border-200 d-flex align-items-center justify-content-between">
-        <h6 class="mb-0"><?= $formData['id'] > 0 ? 'Update Company Profile' : 'Add Company Profile' ?></h6>
-        <?php if ($formData['id'] > 0): ?>
-          <a href="<?= htmlspecialchars($currentPath) ?>" class="btn btn-falcon-default btn-sm">
-            <span class="fas fa-plus me-1"></span>New
-          </a>
-        <?php endif; ?>
+        <h6 class="mb-0">Add Partner</h6>
       </div>
       <div class="card-body">
-        <form method="post" action="<?= htmlspecialchars($currentPath) ?>#partner-form" class="row g-2" enctype="multipart/form-data">
-          <input type="hidden" name="action" value="save_mycompany" />
+        <form method="post" action="<?= htmlspecialchars($currentPath) ?>?tab=partners#partner-tab-form" class="row g-2" enctype="multipart/form-data">
+          <input type="hidden" name="action" value="save_partner" />
           <input type="hidden" name="id"     value="<?= (int) $formData['id'] ?>" />
 
-          <!-- Email -->
-          <div class="col-12">
-            <label class="form-label form-label-sm" for="pEmail">Email</label>
-            <input class="form-control form-control-sm" id="pEmail" name="email" type="email"
-                   placeholder="email@example.com"
-                   value="<?= htmlspecialchars($formData['email']) ?>" />
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pEmail" name="email" type="email" placeholder="email@example.com"
+                     value="<?= htmlspecialchars($formData['email']) ?>" />
+              <label for="pEmail">Email</label>
+            </div>
           </div>
 
-          <!-- Phone -->
-          <div class="col-12">
-            <label class="form-label form-label-sm" for="pPhone">Phone</label>
-            <input class="form-control form-control-sm" id="pPhone" name="phone" type="text"
-                   placeholder="Phone number"
-                   value="<?= htmlspecialchars($formData['phone']) ?>" />
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pPhone" name="phone" type="text" placeholder="Phone number"
+                     value="<?= htmlspecialchars($formData['phone']) ?>" />
+              <label for="pPhone">Phone</label>
+            </div>
           </div>
 
-          <!-- Company -->
-          <div class="col-12">
-            <label class="form-label form-label-sm" for="pCompany">Company</label>
-            <input class="form-control form-control-sm" id="pCompany" name="company" type="text"
-                   placeholder="Company name"
-                   value="<?= htmlspecialchars($formData['company']) ?>" />
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pCompany" name="company" type="text" placeholder="Company name"
+                     value="<?= htmlspecialchars($formData['company']) ?>" />
+              <label for="pCompany">Company</label>
+            </div>
           </div>
 
-          <div class="col-12">
-            <label class="form-label form-label-sm" for="pContactPersonName">Contact Person Name</label>
-            <input class="form-control form-control-sm" id="pContactPersonName" name="contact_person_name" type="text"
-                   placeholder="Contact person name"
-                   value="<?= htmlspecialchars($formData['contact_person_name']) ?>" />
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pContactPersonName" name="contact_person_name" type="text" placeholder="Contact person name"
+                     value="<?= htmlspecialchars($formData['contact_person_name']) ?>" />
+              <label for="pContactPersonName">Contact Person Name</label>
+            </div>
           </div>
 
-          <div class="col-6">
-            <label class="form-label form-label-sm" for="pContactPersonPhone">Contact Person Phone</label>
-            <input class="form-control form-control-sm" id="pContactPersonPhone" name="contact_person_phone" type="text"
-                   placeholder="Primary phone"
-                   value="<?= htmlspecialchars($formData['contact_person_phone']) ?>" />
-          </div>
-          <div class="col-6">
-            <label class="form-label form-label-sm" for="pContactPersonAltPhone">Alternative Phone</label>
-            <input class="form-control form-control-sm" id="pContactPersonAltPhone" name="contact_person_alt_phone" type="text"
-                   placeholder="Alternative phone"
-                   value="<?= htmlspecialchars($formData['contact_person_alt_phone']) ?>" />
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pContactPersonPhone" name="contact_person_phone" type="text" placeholder="Primary phone"
+                     value="<?= htmlspecialchars($formData['contact_person_phone']) ?>" />
+              <label for="pContactPersonPhone">Contact Person Phone</label>
+            </div>
           </div>
 
-          <div class="col-12">
-            <label class="form-label form-label-sm" for="pContactPersonEmail">Contact Person Email</label>
-            <input class="form-control form-control-sm" id="pContactPersonEmail" name="contact_person_email" type="email"
-                   placeholder="contact@example.com"
-                   value="<?= htmlspecialchars($formData['contact_person_email']) ?>" />
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pContactPersonAltPhone" name="contact_person_alt_phone" type="text" placeholder="Alternative phone"
+                     value="<?= htmlspecialchars($formData['contact_person_alt_phone']) ?>" />
+              <label for="pContactPersonAltPhone">Alternative Phone</label>
+            </div>
           </div>
 
-          <div class="col-12">
-            <label class="form-label form-label-sm" for="pLogoIcon">Icon Logo (100x100 px)</label>
-            <input class="form-control form-control-sm" id="pLogoIcon" name="logo_icon" type="file" accept="image/*" />
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pContactPersonEmail" name="contact_person_email" type="email" placeholder="contact@example.com"
+                     value="<?= htmlspecialchars($formData['contact_person_email']) ?>" />
+              <label for="pContactPersonEmail">Contact Person Email</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pAddress" name="address" type="text" placeholder="Address"
+                     value="<?= htmlspecialchars($formData['address']) ?>" />
+              <label for="pAddress">Address</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <textarea class="form-control" id="pNotes" name="notes" placeholder="Notes" style="height: 58px;"><?= htmlspecialchars($formData['notes']) ?></textarea>
+              <label for="pNotes">Notes</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pLogoIcon" name="logo_icon" type="file" accept="image/*" placeholder="Icon Logo (100x100 px)" />
+              <label for="pLogoIcon">Icon Logo (100x100 px)</label>
+            </div>
             <?php if ($formData['logo_icon'] !== ''): ?>
               <div class="mt-2">
                 <img src="<?= htmlspecialchars($appBasePath . '/' . ltrim($formData['logo_icon'], '/')) ?>" alt="Icon logo" style="width: 100px; height: 100px; object-fit: contain;">
@@ -666,9 +1030,11 @@ require '../../includes/header.php';
             <?php endif; ?>
           </div>
 
-          <div class="col-12">
-            <label class="form-label form-label-sm" for="pLogoMain">Main Logo (300x100 px)</label>
-            <input class="form-control form-control-sm" id="pLogoMain" name="logo_main" type="file" accept="image/*" />
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pLogoMain" name="logo_main" type="file" accept="image/*" placeholder="Main Logo (300x100 px)" />
+              <label for="pLogoMain">Main Logo (300x100 px)</label>
+            </div>
             <?php if ($formData['logo_main'] !== ''): ?>
               <div class="mt-2">
                 <img src="<?= htmlspecialchars($appBasePath . '/' . ltrim($formData['logo_main'], '/')) ?>" alt="Main logo" style="max-width: 300px; height: auto;">
@@ -676,94 +1042,86 @@ require '../../includes/header.php';
             <?php endif; ?>
           </div>
 
-          <!-- User Type / Role -->
-          <div class="col-6">
-            <label class="form-label form-label-sm" for="pUserType">User Type</label>
-            <select class="form-select form-select-sm" id="pUserType" name="user_type">
-              <option value="" disabled selected>Select type</option>
-              <?php foreach ($userTypeLabels as $val => $label): ?>
-                <option value="<?= $val ?>" <?= (int) $formData['user_type'] === $val ? 'selected' : '' ?>>
-                  <?= $label ?>
-                </option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-          <div class="col-6">
-            <label class="form-label form-label-sm" for="pRole">Role</label>
-            <select class="form-select form-select-sm" id="pRole" name="roleId">
-              <option value="0" disabled selected>Select role</option>
-              <?php foreach ($activeRoles as $role): ?>
-                <option value="<?= (int) $role['role_id'] ?>"
-                  <?= (int) $formData['roleId'] === (int) $role['role_id'] ? 'selected' : '' ?>>
-                  <?= htmlspecialchars((string) $role['role_name']) ?>
-                </option>
-              <?php endforeach; ?>
-            </select>
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <select class="form-select" id="pUserType" name="user_type" aria-label="User Type">
+                <?php foreach ($userTypeLabels as $val => $label): ?>
+                  <option value="<?= $val ?>" <?= (int) $formData['user_type'] === $val ? 'selected' : '' ?>>
+                    <?= $label ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+              <label for="pUserType">User Type</label>
+            </div>
           </div>
 
-          <!-- Parent Partner -->
-          <div class="col-12">
-            <label class="form-label form-label-sm" for="pParent">Parent Partner</label>
-            <select class="form-select form-select-sm" id="pParent" name="parentId">
-              <option value="0">None</option>
-              <?php foreach ($activePartners as $ap): ?>
-                <option value="<?= (int) $ap['id'] ?>"
-                  <?= (int) $formData['parentId'] === (int) $ap['id'] ? 'selected' : '' ?>>
-                  #<?= (int) $ap['id'] ?> —
-                  <?= htmlspecialchars(trim(($ap['firstname'] ?? '') . ' ' . ($ap['lastname'] ?? '')) ?: (string) $ap['username']) ?>
-                  <?php if (!empty($ap['company'])): ?>(<?= htmlspecialchars((string) $ap['company']) ?>)<?php endif; ?>
-                </option>
-              <?php endforeach; ?>
-            </select>
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <select class="form-select" id="pRole" name="roleId" aria-label="Role">
+                <option value="0" <?= (int) $formData['roleId'] === 0 ? 'selected' : '' ?>>Select role</option>
+                <?php foreach ($activeRoles as $role): ?>
+                  <option value="<?= (int) $role['role_id'] ?>"
+                    <?= (int) $formData['roleId'] === (int) $role['role_id'] ? 'selected' : '' ?>>
+                    <?= htmlspecialchars((string) $role['role_name']) ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+              <label for="pRole">Role</label>
+            </div>
           </div>
 
-          <!-- Branch / Partner Access -->
-          <div class="col-6">
-            <label class="form-label form-label-sm" for="pBranchAccess">Branch Access</label>
-            <input class="form-control form-control-sm" id="pBranchAccess" name="branch_access_type" type="text"
-                   placeholder="e.g. all / own"
-                   value="<?= htmlspecialchars($formData['branch_access_type']) ?>" />
-          </div>
-          <div class="col-6">
-            <label class="form-label form-label-sm" for="pPartnerAccess">Partner Access</label>
-            <input class="form-control form-control-sm" id="pPartnerAccess" name="partner_access_type" type="text"
-                   placeholder="e.g. all / own"
-                   value="<?= htmlspecialchars($formData['partner_access_type']) ?>" />
-          </div>
-
-          <!-- Department / Partner Ref -->
-          <div class="col-6">
-            <label class="form-label form-label-sm" for="pDept">Department ID</label>
-            <input class="form-control form-control-sm" id="pDept" name="departmentId" type="number" min="0"
-                   placeholder="0"
-                   value="<?= (int) $formData['departmentId'] ?>" />
-          </div>
-          <div class="col-6">
-            <label class="form-label form-label-sm" for="pPartnerRef">Partner Ref ID</label>
-            <input class="form-control form-control-sm" id="pPartnerRef" name="partnerId" type="number" min="0"
-                   placeholder="0"
-                   value="<?= (int) $formData['partnerId'] ?>" />
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <select class="form-select" id="pParent" name="parentId" aria-label="Parent Partner">
+                <option value="0">None</option>
+                <?php foreach ($activePartners as $ap): ?>
+                  <option value="<?= (int) $ap['id'] ?>"
+                    <?= (int) $formData['parentId'] === (int) $ap['id'] ? 'selected' : '' ?>>
+                    #<?= (int) $ap['id'] ?> —
+                    <?= htmlspecialchars(trim(($ap['firstname'] ?? '') . ' ' . ($ap['lastname'] ?? '')) ?: (string) $ap['username']) ?>
+                    <?php if (!empty($ap['company'])): ?>(<?= htmlspecialchars((string) $ap['company']) ?>)<?php endif; ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+              <label for="pParent">Parent Partner</label>
+            </div>
           </div>
 
-          <!-- Address -->
-          <div class="col-12">
-            <label class="form-label form-label-sm" for="pAddress">Address</label>
-            <input class="form-control form-control-sm" id="pAddress" name="address" type="text"
-                   placeholder="Address"
-                   value="<?= htmlspecialchars($formData['address']) ?>" />
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pBranchAccess" name="branch_access_type" type="text" placeholder="0"
+                     value="<?= htmlspecialchars($formData['branch_access_type']) ?>" />
+              <label for="pBranchAccess">Branch Access</label>
+            </div>
           </div>
 
-          <!-- Notes -->
-          <div class="col-12">
-            <label class="form-label form-label-sm" for="pNotes">Notes</label>
-            <textarea class="form-control form-control-sm" id="pNotes" name="notes" rows="2"
-                      placeholder="Optional notes"><?= htmlspecialchars($formData['notes']) ?></textarea>
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pPartnerAccess" name="partner_access_type" type="text" placeholder="0"
+                     value="<?= htmlspecialchars($formData['partner_access_type']) ?>" />
+              <label for="pPartnerAccess">Partner Access</label>
+            </div>
           </div>
 
-          <!-- Status -->
-          <div class="col-12">
-            <div class="d-flex align-items-center justify-content-between gap-2">
-              <label class="form-label mb-0">Status</label>
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pDept" name="departmentId" type="number" min="0" placeholder="0"
+                     value="<?= (int) $formData['departmentId'] ?>" />
+              <label for="pDept">Department ID</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="pPartnerRef" name="partnerId" type="number" min="0" placeholder="0"
+                     value="<?= (int) $formData['partnerId'] ?>" />
+              <label for="pPartnerRef">Partner Ref ID</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="border rounded px-3 py-2 h-100 d-flex align-items-center justify-content-between">
+              <span class="text-700">Status</span>
               <div class="form-check form-switch m-0">
                 <input class="form-check-input" type="checkbox" id="pEnabled" name="enabled" value="1"
                        <?= (int) $formData['enabled'] === 1 ? 'checked' : '' ?> />
@@ -772,17 +1130,167 @@ require '../../includes/header.php';
             </div>
           </div>
 
-          <!-- Submit -->
-          <div class="col-12 mt-2">
-            <button class="btn btn-primary btn-sm w-100" type="submit">
-              <span class="fas fa-save me-1"></span>
-              <?= $formData['id'] > 0 ? 'Update Company Profile' : 'Add Company Profile' ?>
+          <div class="col-12 d-flex justify-content-end gap-2 mt-2">
+            <a class="btn btn-falcon-default btn-sm" href="<?= htmlspecialchars($currentPath) ?>?tab=partners#partner-tab-form">Reset</a>
+            <button class="btn btn-primary btn-sm" type="submit">Add Partner</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <?php endif; ?>
+
+  <?php if ($activeTab === 'branches'): ?>
+  <div class="col-xl-6">
+    <div class="card h-100">
+      <div class="card-header border-bottom border-200">
+        <h6 class="mb-0">Branch List</h6>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive scrollbar">
+          <table class="table table-sm table-striped fs-10 mb-0">
+            <thead class="bg-body-tertiary">
+              <tr>
+                <th class="text-800">Action</th>
+                <th class="text-800">Branch Name</th>
+                <th class="text-800">Partner</th>
+                <th class="text-800">Email / Mobile</th>
+                <th class="text-800">Address</th>
+                <th class="text-800">Status</th>
+                <th class="text-800">Type</th>
+                <th class="text-800">Ratio</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <button class="btn btn-link p-0" type="button" data-bs-toggle="tooltip" data-bs-placement="top" title="Edit" aria-label="Edit">
+                    <span class="fas fa-edit text-500"></span>
+                  </button>
+                  <div class="form-check form-switch d-inline-flex ms-2 m-0" data-bs-toggle="tooltip" data-bs-placement="top" title="Toggle Active/Inactive">
+                    <input class="form-check-input" type="checkbox" id="branchStatusToggle1" name="status" value="1" checked>
+                  </div>
+                </td>
+                <td>Head Office</td>
+                <td>Partner A</td>
+                <td>headoffice@isp360.com<br><small class="text-600">+8801700000001</small></td>
+                <td>Dhaka, Bangladesh</td>
+                <td><span class="badge badge-subtle-success">Active</span></td>
+                <td>Head Office</td>
+                <td>50%</td>
+              </tr>
+              <tr>
+                <td>
+                  <button class="btn btn-link p-0" type="button" data-bs-toggle="tooltip" data-bs-placement="top" title="Edit" aria-label="Edit">
+                    <span class="fas fa-edit text-500"></span>
+                  </button>
+                  <div class="form-check form-switch d-inline-flex ms-2 m-0" data-bs-toggle="tooltip" data-bs-placement="top" title="Toggle Active/Inactive">
+                    <input class="form-check-input" type="checkbox" id="branchStatusToggle2" name="status" value="1" checked>
+                  </div>
+                </td>
+                <td>Chittagong Branch</td>
+                <td>Partner B</td>
+                <td>ctg@isp360.com<br><small class="text-600">+8801700000002</small></td>
+                <td>Chittagong, Bangladesh</td>
+                <td><span class="badge badge-subtle-success">Active</span></td>
+                <td>Regional</td>
+                <td>30%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-xl-6">
+    <div class="card h-100">
+      <div class="card-header border-bottom border-200 d-flex align-items-center justify-content-between">
+        <h6 class="mb-0">Add Branch</h6>
+      </div>
+      <div class="card-body">
+        <form class="row g-2" action="<?= htmlspecialchars($currentPath) ?>?tab=branches" method="post">
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="branchName" name="branch_name" type="text" placeholder="Enter branch name" required />
+              <label for="branchName">Branch Name</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <select class="form-select" id="branchPartner" name="partner_id" aria-label="Partner">
+                <option value="" disabled selected>Select Partner</option>
+                <option value="1">Partner A</option>
+                <option value="2">Partner B</option>
+                <option value="3">Partner C</option>
+              </select>
+              <label for="branchPartner">Partner</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="branchEmail" name="email" type="email" placeholder="Enter email" required />
+              <label for="branchEmail">Email</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="branchMobile" name="mobile" type="text" placeholder="Enter mobile number" required />
+              <label for="branchMobile">Mobile</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <textarea class="form-control" id="branchAddress" name="address" placeholder="Enter address" style="height: 58px;" required></textarea>
+              <label for="branchAddress">Address</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <select class="form-select" id="branchType" name="branch_type" aria-label="Type">
+                <option value="" disabled selected>Select Type</option>
+                <option value="head_office">Head Office</option>
+                <option value="regional">Regional</option>
+                <option value="local">Local</option>
+                <option value="franchise">Franchise</option>
+              </select>
+              <label for="branchType">Type</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="form-floating">
+              <input class="form-control" id="branchRatio" name="ratio" type="number" min="0" max="100" placeholder="e.g. 30" />
+              <label for="branchRatio">Ratio</label>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-xl-4">
+            <div class="border rounded px-3 py-2 h-100 d-flex align-items-center justify-content-between">
+              <span class="text-700">Status</span>
+              <div class="form-check form-switch m-0">
+                <input class="form-check-input" type="checkbox" id="branchStatus" name="status" value="1" checked />
+                <label class="form-check-label fs-10" for="branchStatus">Active</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12 d-flex justify-content-end gap-2 mt-2">
+            <a class="btn btn-falcon-default btn-sm" href="<?= htmlspecialchars($currentPath) ?>?tab=branches">Reset</a>
+            <button class="btn btn-primary btn-sm" type="submit">
+              Save Branch
             </button>
           </div>
         </form>
       </div>
     </div>
   </div>
+  <?php endif; ?>
 
 </div>
 

@@ -115,13 +115,17 @@
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/logs/user-logs.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">User logs</span></div></a></li>
                   </ul>
                 </li>
-                <li class="nav-item"><a class="nav-link dropdown-indicator" href="#administration" role="button" data-bs-toggle="collapse" aria-expanded="false" aria-controls="administration"><div class="d-flex align-items-center"><span class="nav-link-icon"><span class="fas fa-user-shield"></span></span><span class="nav-link-text ps-1">Administration</span></div></a>
+                <li class="nav-item"><a class="nav-link dropdown-indicator collapsed" href="#administration" role="button" data-bs-toggle="collapse" aria-expanded="false" aria-controls="administration"><div class="d-flex align-items-center"><span class="nav-link-icon"><span class="fas fa-user-shield"></span></span><span class="nav-link-text ps-1">Administration</span></div></a>
                   <ul class="nav collapse" id="administration">
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/branches.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Branches</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/locations.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Locations</span></div></a></li>
-                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/my-company.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">My Company</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/roles.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Roles</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/admin-users.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Admin Users</span></div></a></li>
+                  </ul>
+                </li>
+                <li class="nav-item"><a class="nav-link dropdown-indicator collapsed" href="#company-mgmt" role="button" data-bs-toggle="collapse" aria-expanded="false" aria-controls="company-mgmt"><div class="d-flex align-items-center"><span class="nav-link-icon"><span class="fas fa-building"></span></span><span class="nav-link-text ps-1">Company Mgmt</span></div></a>
+                  <ul class="nav collapse" id="company-mgmt">
+                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/my-company.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">My Company</span></div></a></li>
                   </ul>
                 </li>
                 <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/pages/user/settings.html"><div class="d-flex align-items-center"><span class="nav-link-icon"><span class="fas fa-cog"></span></span><span class="nav-link-text ps-1">Settings</span></div></a></li>
@@ -170,15 +174,18 @@
             activeLink.setAttribute('aria-current', 'page');
 
             var parentCollapse = activeLink.closest('ul.collapse');
-            if (!parentCollapse || !parentCollapse.id) return;
+            while (parentCollapse && parentCollapse.id) {
+              parentCollapse.classList.add('show');
 
-            parentCollapse.classList.add('show');
+              var toggle = navRoot.querySelector('a.nav-link.dropdown-indicator[href="#' + parentCollapse.id + '"]');
+              if (!toggle) {
+                break;
+              }
 
-            var toggle = navRoot.querySelector('a.nav-link.dropdown-indicator[href="#' + parentCollapse.id + '"]');
-            if (!toggle) return;
-
-            toggle.classList.remove('collapsed');
-            toggle.setAttribute('aria-expanded', 'true');
+              toggle.classList.remove('collapsed');
+              toggle.setAttribute('aria-expanded', 'true');
+              parentCollapse = toggle.closest('ul.collapse');
+            }
           })();
           </script>
         </nav>
