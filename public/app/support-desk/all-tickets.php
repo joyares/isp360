@@ -419,6 +419,24 @@ if ($selectedTicketId > 0) {
     }
 }
 
+$selectedTicketContextQuery = $_GET;
+unset($selectedTicketContextQuery['saved'], $selectedTicketContextQuery['note_saved']);
+
+$ispts_build_ticket_details_query = static function (int $ticketId) use ($selectedTicketContextQuery): string {
+  $query = $selectedTicketContextQuery;
+  $query['ticket_id'] = $ticketId;
+  return '?' . http_build_query($query) . '#selected-ticket-details';
+};
+
+$selectedTicketActionQuery = $selectedTicketContextQuery;
+if ($selectedTicketId > 0) {
+  $selectedTicketActionQuery['ticket_id'] = $selectedTicketId;
+}
+
+$selectedTicketActionQueryString = !empty($selectedTicketActionQuery)
+  ? ('?' . http_build_query($selectedTicketActionQuery))
+  : '';
+
 $ticketNotes = [];
 if ($selectedTicket !== null) {
     try {
@@ -644,6 +662,7 @@ require '../../includes/header.php';
               <?php else: ?>
                 <?php foreach ($tickets as $ticket): ?>
                   <?php
+                    $ticketDetailsQuery = $ispts_build_ticket_details_query((int) $ticket['ticket_id']);
                     $statusLabel = (string) ($ticket['status_name'] ?: 'Unspecified');
                     $priorityLabel = (string) ($ticket['priority_name'] ?: 'Normal');
                     $clientLabel = (string) ($ticket['customer_username'] ?: 'General');
@@ -690,9 +709,9 @@ require '../../includes/header.php';
                       $durationText = 'now';
                     }
                   ?>
-                  <tr class="table-row-hover <?= $selectedTicketId === (int) $ticket['ticket_id'] ? 'active-row' : '' ?>" style="cursor:pointer;" onclick="window.location='<?= $appBasePath ?>/app/support-desk/all-tickets.php?ticket_id=<?= (int) $ticket['ticket_id'] ?>#selected-ticket-details'">
+                  <tr class="table-row-hover <?= $selectedTicketId === (int) $ticket['ticket_id'] ? 'active-row' : '' ?>" style="cursor:pointer;" onclick="window.location='<?= $appBasePath ?>/app/support-desk/all-tickets.php<?= htmlspecialchars($ticketDetailsQuery, ENT_QUOTES, 'UTF-8') ?>'">
                     <td class="align-middle ps-2 ticket-row-action" onclick="event.stopPropagation();">
-                      <a class="btn btn-link p-0" href="<?= $appBasePath ?>/app/support-desk/all-tickets.php?ticket_id=<?= (int) $ticket['ticket_id'] ?>#selected-ticket-details" data-bs-toggle="tooltip" data-bs-placement="top" title="Edit" onclick="event.stopPropagation();">
+                      <a class="btn btn-link p-0" href="<?= $appBasePath ?>/app/support-desk/all-tickets.php<?= htmlspecialchars($ticketDetailsQuery) ?>" data-bs-toggle="tooltip" data-bs-placement="top" title="Edit" onclick="event.stopPropagation();">
                         <span class="fas fa-edit text-500"></span>
                       </a>
                     </td>
@@ -716,7 +735,7 @@ require '../../includes/header.php';
                           <?php endif; ?>
                         </div>
                         <div class="d-flex flex-column gap-1">
-                          <h6 class="mb-0"><a class="stretched-link text-900" href="<?= $appBasePath ?>/app/support-desk/all-tickets.php?ticket_id=<?= (int) $ticket['ticket_id'] ?>#selected-ticket-details"><?= htmlspecialchars($clientLabel) ?></a></h6>
+                          <h6 class="mb-0"><a class="stretched-link text-900" href="<?= $appBasePath ?>/app/support-desk/all-tickets.php<?= htmlspecialchars($ticketDetailsQuery) ?>"><?= htmlspecialchars($clientLabel) ?></a></h6>
                           <small class="text-600"><?= htmlspecialchars((string) (($ticket['customer_phone'] ?? '') !== '' ? $ticket['customer_phone'] : '-')) ?></small>
                         </div>
                       </div>
@@ -890,7 +909,7 @@ require '../../includes/header.php';
             <small class="badge badge-subtle-secondary rounded-pill"><span class="fas fa-sync me-1"></span><?= $updatedTime->format('M d, Y H:i') ?></small>
           </div>
 
-          <form method="post" action="<?= $appBasePath ?>/app/support-desk/all-tickets.php?ticket_id=<?= (int) $selectedTicket['ticket_id'] ?>#selected-ticket-details" class="mb-3">
+          <form method="post" action="<?= $appBasePath ?>/app/support-desk/all-tickets.php<?= htmlspecialchars($selectedTicketActionQueryString) ?>#selected-ticket-details" class="mb-3">
             <input type="hidden" name="action" value="quick_update_ticket">
             <input type="hidden" name="ticket_id" value="<?= (int) $selectedTicket['ticket_id'] ?>">
             <div class="d-flex align-items-center gap-2">
@@ -1016,7 +1035,7 @@ require '../../includes/header.php';
           </div>
           <?php endif; ?>
 
-          <form method="post" action="<?= $appBasePath ?>/app/support-desk/all-tickets.php?ticket_id=<?= (int) $selectedTicket['ticket_id'] ?>#selected-ticket-details">
+          <form method="post" action="<?= $appBasePath ?>/app/support-desk/all-tickets.php<?= htmlspecialchars($selectedTicketActionQueryString) ?>#selected-ticket-details">
             <input type="hidden" name="action" value="add_ticket_note">
             <input type="hidden" name="ticket_id" value="<?= (int) $selectedTicket['ticket_id'] ?>">
             <div class="d-flex align-items-start gap-2">
@@ -1037,7 +1056,7 @@ require '../../includes/header.php';
               <h5 class="modal-title">Edit Ticket</h5>
               <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <form method="post" action="<?= $appBasePath ?>/app/support-desk/all-tickets.php?ticket_id=<?= (int) $selectedTicket['ticket_id'] ?>">
+            <form method="post" action="<?= $appBasePath ?>/app/support-desk/all-tickets.php<?= htmlspecialchars($selectedTicketActionQueryString) ?>">
               <div class="modal-body">
                 <input type="hidden" name="action" value="update_ticket">
                 <input type="hidden" name="ticket_id" value="<?= (int) $selectedTicket['ticket_id'] ?>">
