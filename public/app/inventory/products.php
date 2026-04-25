@@ -36,6 +36,7 @@ $pdo->exec(
     "CREATE TABLE IF NOT EXISTS inventory_sub_categories (
         sub_category_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         category_id BIGINT UNSIGNED NOT NULL,
+    unit_id BIGINT UNSIGNED DEFAULT NULL,
         sub_category_name VARCHAR(120) NOT NULL,
         sort_order INT NOT NULL DEFAULT 0,
         status TINYINT(1) NOT NULL DEFAULT 1,
@@ -43,11 +44,30 @@ $pdo->exec(
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY uk_inventory_sub_categories_name (category_id, sub_category_name),
         KEY idx_inventory_sub_categories_category (category_id),
+    KEY idx_inventory_sub_categories_unit (unit_id),
         CONSTRAINT fk_inventory_sub_categories_category FOREIGN KEY (category_id)
             REFERENCES inventory_categories(category_id)
+      ON UPDATE CASCADE,
+    CONSTRAINT fk_inventory_sub_categories_unit FOREIGN KEY (unit_id)
+      REFERENCES inventory_units(unit_id)
             ON UPDATE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
 );
+
+$ispts_has_column = static function (\PDO $pdo, string $table, string $column): bool {
+  $stmt = $pdo->prepare(
+    'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column'
+  );
+  $stmt->bindValue(':table', $table);
+  $stmt->bindValue(':column', $column);
+  $stmt->execute();
+
+  return (int) $stmt->fetchColumn() > 0;
+};
+
+if (!$ispts_has_column($pdo, 'inventory_sub_categories', 'unit_id')) {
+  $pdo->exec('ALTER TABLE inventory_sub_categories ADD COLUMN unit_id BIGINT UNSIGNED DEFAULT NULL AFTER category_id');
+}
 
 $pdo->exec(
     "CREATE TABLE IF NOT EXISTS inventory_products (
@@ -86,8 +106,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $productName = trim((string) ($_POST['product_name'] ?? ''));
         $categoryId = isset($_POST['category_id']) ? (int) $_POST['category_id'] : 0;
         $subCategoryId = isset($_POST['sub_category_id']) ? (int) $_POST['sub_category_id'] : 0;
-        $unitId = isset($_POST['unit_id']) ? (int) $_POST['unit_id'] : 0;
-        $unitPrice = isset($_POST['unit_price']) ? (float) $_POST['unit_price'] : 0.0;
         $status = isset($_POST['status']) ? 1 : 0;
 
         if ($productName === '') {
@@ -96,20 +114,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $alert = ['type' => 'danger', 'message' => 'Please select a category.'];
         } elseif ($subCategoryId <= 0) {
             $alert = ['type' => 'danger', 'message' => 'Please select a sub category.'];
-        } elseif ($unitId <= 0) {
-            $alert = ['type' => 'danger', 'message' => 'Please select a unit.'];
-        } elseif ($unitPrice < 0) {
-            $alert = ['type' => 'danger', 'message' => 'Unit price cannot be negative.'];
         } else {
-            // Ensure selected sub category belongs to selected category.
-            $checkStmt = $pdo->prepare('SELECT COUNT(*) FROM inventory_sub_categories WHERE sub_category_id = :sub_category_id AND category_id = :category_id LIMIT 1');
+          // Ensure selected sub category belongs to selected category and fetch mapped unit.
+          $checkStmt = $pdo->prepare(
+            'SELECT unit_id FROM inventory_sub_categories
+             WHERE sub_category_id = :sub_category_id AND category_id = :category_id
+             LIMIT 1'
+          );
             $checkStmt->bindValue(':sub_category_id', $subCategoryId, \PDO::PARAM_INT);
             $checkStmt->bindValue(':category_id', $categoryId, \PDO::PARAM_INT);
             $checkStmt->execute();
-            $isValidPair = (int) $checkStmt->fetchColumn() > 0;
+          $mappedUnitId = (int) $checkStmt->fetchColumn();
+          $isValidPair = $mappedUnitId > 0;
 
             if (!$isValidPair) {
-                $alert = ['type' => 'danger', 'message' => 'Selected sub category does not belong to selected category.'];
+            $alert = ['type' => 'danger', 'message' => 'Selected sub category must belong to selected category and have a unit.'];
             } else {
                 if ($productId > 0) {
                     $stmt = $pdo->prepare(
@@ -118,23 +137,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                              category_id = :category_id,
                              sub_category_id = :sub_category_id,
                              unit_id = :unit_id,
-                             unit_price = :unit_price,
                              status = :status
                          WHERE product_id = :product_id'
                     );
                     $stmt->bindValue(':product_id', $productId, \PDO::PARAM_INT);
                 } else {
                     $stmt = $pdo->prepare(
-                        'INSERT INTO inventory_products (product_name, category_id, sub_category_id, unit_id, unit_price, status)
-                         VALUES (:product_name, :category_id, :sub_category_id, :unit_id, :unit_price, :status)'
+                        'INSERT INTO inventory_products (product_name, category_id, sub_category_id, unit_id, status)
+                         VALUES (:product_name, :category_id, :sub_category_id, :unit_id, :status)'
                     );
                 }
 
                 $stmt->bindValue(':product_name', $productName);
                 $stmt->bindValue(':category_id', $categoryId, \PDO::PARAM_INT);
                 $stmt->bindValue(':sub_category_id', $subCategoryId, \PDO::PARAM_INT);
-                $stmt->bindValue(':unit_id', $unitId, \PDO::PARAM_INT);
-                $stmt->bindValue(':unit_price', number_format($unitPrice, 2, '.', ''));
+                $stmt->bindValue(':unit_id', $mappedUnitId, \PDO::PARAM_INT);
                 $stmt->bindValue(':status', $status, \PDO::PARAM_INT);
                 $stmt->execute();
 
@@ -157,7 +174,6 @@ $productForm = [
     'category_id' => 0,
     'sub_category_id' => 0,
     'unit_id' => 0,
-    'unit_price' => '0.00',
     'status' => 1,
 ];
 
@@ -178,15 +194,18 @@ if ($editProductId > 0) {
             'category_id' => (int) $row['category_id'],
             'sub_category_id' => (int) $row['sub_category_id'],
             'unit_id' => (int) $row['unit_id'],
-            'unit_price' => number_format((float) $row['unit_price'], 2, '.', ''),
             'status' => (int) $row['status'],
         ];
     }
 }
 
 $categories = $pdo->query('SELECT category_id, category_name, status FROM inventory_categories ORDER BY category_name ASC')->fetchAll(\PDO::FETCH_ASSOC);
-$subCategories = $pdo->query('SELECT sub_category_id, category_id, sub_category_name, status FROM inventory_sub_categories ORDER BY sub_category_name ASC')->fetchAll(\PDO::FETCH_ASSOC);
-$units = $pdo->query('SELECT unit_id, unit_name, status FROM inventory_units ORDER BY unit_name ASC')->fetchAll(\PDO::FETCH_ASSOC);
+$subCategories = $pdo->query(
+  'SELECT sc.sub_category_id, sc.category_id, sc.unit_id, sc.sub_category_name, sc.status, u.unit_name
+   FROM inventory_sub_categories sc
+   LEFT JOIN inventory_units u ON u.unit_id = sc.unit_id
+   ORDER BY sc.sub_category_name ASC'
+)->fetchAll(\PDO::FETCH_ASSOC);
 
 $products = $pdo->query(
     'SELECT p.product_id, p.product_name, p.unit_price, p.status,
@@ -241,13 +260,12 @@ require '../../includes/header.php';
                 <th class="text-800">Category</th>
                 <th class="text-800">Sub Category</th>
                 <th class="text-800">Unit</th>
-                <th class="text-800 text-end">Price</th>
                 <th class="text-800">Status</th>
               </tr>
             </thead>
             <tbody>
               <?php if (empty($products)): ?>
-                <tr><td colspan="7" class="text-center py-3 text-600">No products found.</td></tr>
+                <tr><td colspan="6" class="text-center py-3 text-600">No products found.</td></tr>
               <?php else: ?>
                 <?php foreach ($products as $row): ?>
                   <tr>
@@ -258,7 +276,6 @@ require '../../includes/header.php';
                     <td><?= htmlspecialchars((string) ($row['category_name'] ?? '-')) ?></td>
                     <td><?= htmlspecialchars((string) ($row['sub_category_name'] ?? '-')) ?></td>
                     <td><?= htmlspecialchars((string) ($row['unit_name'] ?? '-')) ?></td>
-                    <td class="text-end"><?= number_format((float) $row['unit_price'], 2) ?></td>
                     <td><?= (int) $row['status'] === 1 ? '<span class="badge badge-subtle-success">On</span>' : '<span class="badge badge-subtle-danger">Off</span>' ?></td>
                   </tr>
                 <?php endforeach; ?>
@@ -304,19 +321,7 @@ require '../../includes/header.php';
 
           <div class="col-12">
             <label class="form-label" for="product-unit">Unit</label>
-            <select class="form-select" id="product-unit" name="unit_id" required>
-              <option value="" disabled <?= (int) $productForm['unit_id'] <= 0 ? 'selected' : '' ?>>Select Unit</option>
-              <?php foreach ($units as $option): ?>
-                <option value="<?= (int) $option['unit_id'] ?>" <?= (int) $productForm['unit_id'] === (int) $option['unit_id'] ? 'selected' : '' ?>>
-                  <?= htmlspecialchars((string) $option['unit_name']) ?><?= (int) $option['status'] === 0 ? ' (Off)' : '' ?>
-                </option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-
-          <div class="col-12">
-            <label class="form-label" for="product-price">Unit Price</label>
-            <input class="form-control" id="product-price" name="unit_price" type="number" step="0.01" min="0" value="<?= htmlspecialchars((string) $productForm['unit_price']) ?>" required>
+            <input class="form-control" id="product-unit" type="text" value="" disabled readonly>
           </div>
 
           <div class="col-12">
@@ -346,6 +351,7 @@ require '../../includes/header.php';
 
     var subCategories = <?= json_encode($subCategories, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
     var selectedSubCategoryId = <?= (int) $productForm['sub_category_id'] ?>;
+    var unitDisplayInput = document.getElementById('product-unit');
 
     function rebuildSubCategories() {
       var currentCategoryId = parseInt(categorySelect.value || '0', 10);
@@ -359,6 +365,10 @@ require '../../includes/header.php';
       placeholder.textContent = 'Select Sub Category';
       subCategorySelect.appendChild(placeholder);
 
+      if (unitDisplayInput) {
+        unitDisplayInput.value = '';
+      }
+
       subCategories.forEach(function (item) {
         if (parseInt(item.category_id, 10) !== currentCategoryId) return;
 
@@ -371,6 +381,7 @@ require '../../includes/header.php';
         var option = document.createElement('option');
         option.value = String(id);
         option.textContent = label;
+        option.setAttribute('data-unit-name', String(item.unit_name || ''));
 
         var isSelected = id === selectedSubCategoryId;
         if (isSelected) {
@@ -383,7 +394,21 @@ require '../../includes/header.php';
 
       if (!foundSelected) {
         subCategorySelect.value = '';
+      } else {
+        updateUnitFromSubCategory();
       }
+    }
+
+    function updateUnitFromSubCategory() {
+      if (!unitDisplayInput) return;
+
+      var selectedOption = subCategorySelect.options[subCategorySelect.selectedIndex] || null;
+      if (!selectedOption || !selectedOption.value) {
+        unitDisplayInput.value = '';
+        return;
+      }
+
+      unitDisplayInput.value = selectedOption.getAttribute('data-unit-name') || '';
     }
 
     categorySelect.addEventListener('change', function () {
@@ -391,7 +416,12 @@ require '../../includes/header.php';
       rebuildSubCategories();
     });
 
+    subCategorySelect.addEventListener('change', function () {
+      updateUnitFromSubCategory();
+    });
+
     rebuildSubCategories();
+    updateUnitFromSubCategory();
   })();
 </script>
 

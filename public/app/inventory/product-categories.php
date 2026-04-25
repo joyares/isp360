@@ -36,6 +36,7 @@ $pdo->exec(
     "CREATE TABLE IF NOT EXISTS inventory_sub_categories (
         sub_category_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         category_id BIGINT UNSIGNED NOT NULL,
+    unit_id BIGINT UNSIGNED DEFAULT NULL,
         sub_category_name VARCHAR(120) NOT NULL,
         sort_order INT NOT NULL DEFAULT 0,
         status TINYINT(1) NOT NULL DEFAULT 1,
@@ -43,11 +44,30 @@ $pdo->exec(
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY uk_inventory_sub_categories_name (category_id, sub_category_name),
         KEY idx_inventory_sub_categories_category (category_id),
+    KEY idx_inventory_sub_categories_unit (unit_id),
         CONSTRAINT fk_inventory_sub_categories_category FOREIGN KEY (category_id)
             REFERENCES inventory_categories(category_id)
+      ON UPDATE CASCADE,
+    CONSTRAINT fk_inventory_sub_categories_unit FOREIGN KEY (unit_id)
+      REFERENCES inventory_units(unit_id)
             ON UPDATE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
 );
+
+$ispts_has_column = static function (\PDO $pdo, string $table, string $column): bool {
+  $stmt = $pdo->prepare(
+    'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column'
+  );
+  $stmt->bindValue(':table', $table);
+  $stmt->bindValue(':column', $column);
+  $stmt->execute();
+
+  return (int) $stmt->fetchColumn() > 0;
+};
+
+if (!$ispts_has_column($pdo, 'inventory_sub_categories', 'unit_id')) {
+  $pdo->exec('ALTER TABLE inventory_sub_categories ADD COLUMN unit_id BIGINT UNSIGNED DEFAULT NULL AFTER category_id');
+}
 
 $unitCount = (int) $pdo->query('SELECT COUNT(*) FROM inventory_units')->fetchColumn();
 if ($unitCount === 0) {
@@ -74,13 +94,16 @@ if ($categoryCount === 0) {
 $subCategoryCount = (int) $pdo->query('SELECT COUNT(*) FROM inventory_sub_categories')->fetchColumn();
 if ($subCategoryCount === 0) {
     $networkingId = (int) $pdo->query("SELECT category_id FROM inventory_categories WHERE category_name = 'Networking' LIMIT 1")->fetchColumn();
-    if ($networkingId > 0) {
+  $defaultUnitId = (int) $pdo->query("SELECT unit_id FROM inventory_units WHERE unit_name = 'Pcs' LIMIT 1")->fetchColumn();
+  if ($networkingId > 0 && $defaultUnitId > 0) {
         $stmt = $pdo->prepare(
-          'INSERT INTO inventory_sub_categories (category_id, sub_category_name, sort_order, status)
-           VALUES (:category_id_one, :name_one, 10, 1), (:category_id_two, :name_two, 20, 1)'
+      'INSERT INTO inventory_sub_categories (category_id, unit_id, sub_category_name, sort_order, status)
+       VALUES (:category_id_one, :unit_id_one, :name_one, 10, 1), (:category_id_two, :unit_id_two, :name_two, 20, 1)'
         );
         $stmt->bindValue(':category_id_one', $networkingId, \PDO::PARAM_INT);
         $stmt->bindValue(':category_id_two', $networkingId, \PDO::PARAM_INT);
+    $stmt->bindValue(':unit_id_one', $defaultUnitId, \PDO::PARAM_INT);
+    $stmt->bindValue(':unit_id_two', $defaultUnitId, \PDO::PARAM_INT);
         $stmt->bindValue(':name_one', 'Router');
         $stmt->bindValue(':name_two', 'Switch');
         $stmt->execute();
@@ -179,31 +202,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'save_subcategory') {
         $subCategoryId = isset($_POST['sub_category_id']) ? (int) $_POST['sub_category_id'] : 0;
         $categoryId = isset($_POST['category_id']) ? (int) $_POST['category_id'] : 0;
+      $unitId = isset($_POST['unit_id']) ? (int) $_POST['unit_id'] : 0;
         $name = trim((string) ($_POST['sub_category_name'] ?? ''));
         $sortOrder = isset($_POST['sort_order']) ? (int) $_POST['sort_order'] : 0;
         $status = isset($_POST['status']) ? 1 : 0;
 
         if ($categoryId <= 0) {
             $alert = ['type' => 'danger', 'message' => 'Please select a category for sub category.'];
+      } elseif ($unitId <= 0) {
+        $alert = ['type' => 'danger', 'message' => 'Please select a unit for sub category.'];
         } elseif ($name === '') {
             $alert = ['type' => 'danger', 'message' => 'Sub category name is required.'];
         } else {
             if ($subCategoryId > 0) {
                 $stmt = $pdo->prepare(
                     'UPDATE inventory_sub_categories
-                     SET category_id = :category_id, sub_category_name = :name, sort_order = :sort_order, status = :status
+             SET category_id = :category_id, unit_id = :unit_id, sub_category_name = :name, sort_order = :sort_order, status = :status
                      WHERE sub_category_id = :id'
                 );
                 $stmt->bindValue(':id', $subCategoryId, \PDO::PARAM_INT);
             } else {
                 $stmt = $pdo->prepare(
-                    'INSERT INTO inventory_sub_categories (category_id, sub_category_name, sort_order, status)
-                     VALUES (:category_id, :name, :sort_order, :status)'
+            'INSERT INTO inventory_sub_categories (category_id, unit_id, sub_category_name, sort_order, status)
+             VALUES (:category_id, :unit_id, :name, :sort_order, :status)'
                 );
             }
 
             try {
                 $stmt->bindValue(':category_id', $categoryId, \PDO::PARAM_INT);
+          $stmt->bindValue(':unit_id', $unitId, \PDO::PARAM_INT);
                 $stmt->bindValue(':name', $name);
                 $stmt->bindValue(':sort_order', $sortOrder, \PDO::PARAM_INT);
                 $stmt->bindValue(':status', $status, \PDO::PARAM_INT);
@@ -230,7 +257,7 @@ $editSubCategoryId = isset($_GET['edit_subcategory']) ? (int) $_GET['edit_subcat
 
 $unitForm = ['unit_id' => 0, 'unit_name' => '', 'sort_order' => 0, 'status' => 1];
 $categoryForm = ['category_id' => 0, 'category_name' => '', 'sort_order' => 0, 'status' => 1];
-$subCategoryForm = ['sub_category_id' => 0, 'category_id' => 0, 'sub_category_name' => '', 'sort_order' => 0, 'status' => 1];
+$subCategoryForm = ['sub_category_id' => 0, 'category_id' => 0, 'unit_id' => 0, 'sub_category_name' => '', 'sort_order' => 0, 'status' => 1];
 
 if ($editUnitId > 0) {
     $stmt = $pdo->prepare('SELECT unit_id, unit_name, sort_order, status FROM inventory_units WHERE unit_id = :id LIMIT 1');
@@ -265,7 +292,7 @@ if ($editCategoryId > 0) {
 }
 
 if ($editSubCategoryId > 0) {
-    $stmt = $pdo->prepare('SELECT sub_category_id, category_id, sub_category_name, sort_order, status FROM inventory_sub_categories WHERE sub_category_id = :id LIMIT 1');
+  $stmt = $pdo->prepare('SELECT sub_category_id, category_id, unit_id, sub_category_name, sort_order, status FROM inventory_sub_categories WHERE sub_category_id = :id LIMIT 1');
     $stmt->bindValue(':id', $editSubCategoryId, \PDO::PARAM_INT);
     $stmt->execute();
     $row = $stmt->fetch(\PDO::FETCH_ASSOC);
@@ -273,6 +300,7 @@ if ($editSubCategoryId > 0) {
         $subCategoryForm = [
             'sub_category_id' => (int) $row['sub_category_id'],
             'category_id' => (int) $row['category_id'],
+      'unit_id' => (int) ($row['unit_id'] ?? 0),
             'sub_category_name' => (string) $row['sub_category_name'],
             'sort_order' => (int) $row['sort_order'],
             'status' => (int) $row['status'],
@@ -285,9 +313,10 @@ $units = $pdo->query('SELECT unit_id, unit_name, sort_order, status FROM invento
 $categories = $pdo->query('SELECT category_id, category_name, sort_order, status FROM inventory_categories ORDER BY sort_order ASC, category_name ASC')->fetchAll(\PDO::FETCH_ASSOC);
 
 $subCategories = $pdo->query(
-    'SELECT sc.sub_category_id, sc.sub_category_name, sc.category_id, sc.sort_order, sc.status, c.category_name
+  'SELECT sc.sub_category_id, sc.sub_category_name, sc.category_id, sc.unit_id, sc.sort_order, sc.status, c.category_name, u.unit_name
      FROM inventory_sub_categories sc
      LEFT JOIN inventory_categories c ON c.category_id = sc.category_id
+   LEFT JOIN inventory_units u ON u.unit_id = sc.unit_id
      ORDER BY sc.sort_order ASC, sc.sub_category_name ASC'
 )->fetchAll(\PDO::FETCH_ASSOC);
 
@@ -481,13 +510,14 @@ require '../../includes/header.php';
                   <th class="text-800">Action</th>
                   <th class="text-800">Sub Category</th>
                   <th class="text-800">Category</th>
+                  <th class="text-800">Unit</th>
                   <th class="text-800">Sort</th>
                   <th class="text-800">Status</th>
                 </tr>
               </thead>
               <tbody>
                 <?php if (empty($subCategories)): ?>
-                  <tr><td colspan="5" class="text-center py-3 text-600">No sub categories found.</td></tr>
+                  <tr><td colspan="6" class="text-center py-3 text-600">No sub categories found.</td></tr>
                 <?php else: ?>
                   <?php foreach ($subCategories as $row): ?>
                     <tr>
@@ -496,6 +526,7 @@ require '../../includes/header.php';
                       </td>
                       <td><?= htmlspecialchars((string) $row['sub_category_name']) ?></td>
                       <td><?= htmlspecialchars((string) ($row['category_name'] ?? '-')) ?></td>
+                      <td><?= htmlspecialchars((string) ($row['unit_name'] ?? '-')) ?></td>
                       <td><?= (int) $row['sort_order'] ?></td>
                       <td><?= (int) $row['status'] === 1 ? '<span class="badge badge-subtle-success">On</span>' : '<span class="badge badge-subtle-danger">Off</span>' ?></td>
                     </tr>
@@ -521,6 +552,17 @@ require '../../includes/header.php';
                 <?php foreach ($categoryOptions as $option): ?>
                   <option value="<?= (int) $option['category_id'] ?>" <?= (int) $subCategoryForm['category_id'] === (int) $option['category_id'] ? 'selected' : '' ?>>
                     <?= htmlspecialchars((string) $option['category_name']) ?><?= (int) $option['status'] === 0 ? ' (Off)' : '' ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label" for="sub-category-unit">Unit</label>
+              <select class="form-select" id="sub-category-unit" name="unit_id" required>
+                <option value="" disabled <?= (int) $subCategoryForm['unit_id'] <= 0 ? 'selected' : '' ?>>Select Unit</option>
+                <?php foreach ($units as $option): ?>
+                  <option value="<?= (int) $option['unit_id'] ?>" <?= (int) $subCategoryForm['unit_id'] === (int) $option['unit_id'] ? 'selected' : '' ?>>
+                    <?= htmlspecialchars((string) $option['unit_name']) ?>
                   </option>
                 <?php endforeach; ?>
               </select>
