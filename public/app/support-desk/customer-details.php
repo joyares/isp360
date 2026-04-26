@@ -11,6 +11,79 @@ if ($customerId <= 0) {
     exit;
 }
 
+// ── ASSET AJAX HANDLERS ──────────────────────────────────────────────────────
+if (isset($_GET['ajax_get_serials_checkout'])) {
+    $pid = (int)$_GET['pid'];
+    $stmt = $pdo->prepare('SELECT serial_id, serial_ref FROM inventory_serial_numbers WHERE product_id = :p AND status = 1');
+    $stmt->execute(['p' => $pid]);
+    echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
+    exit;
+}
+if (isset($_GET['ajax_get_serials_checkin'])) {
+    $pid = (int)$_GET['pid'];
+    $stmt = $pdo->prepare('SELECT serial_id, serial_ref FROM inventory_serial_numbers WHERE product_id = :p AND status = 2');
+    $stmt->execute(['p' => $pid]);
+    echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
+    exit;
+}
+
+// ── HANDLE ASSET OPERATIONS ──────────────────────────────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['asset_action'])) {
+    $opType = $_POST['asset_action']; 
+    $productId = (int)($_POST['product_id'] ?? 0);
+    $serials = $_POST['serials'] ?? [];
+    $purpose = $_POST['purpose'] ?? ($opType === 'checkout' ? 'Issue to Customer' : 'Return from Customer');
+    $notes = $_POST['notes'] ?? '';
+    $branchId = (int)($_POST['branch_id'] ?? 0);
+    
+    if ($productId > 0 && $branchId > 0) {
+        try {
+            $pdo->beginTransaction();
+            $stmt = $pdo->prepare('INSERT INTO inventory_operations (op_type, purpose, branch_id, customer_id, notes, created_by) VALUES (?, ?, ?, ?, ?, ?)');
+            $stmt->execute([$opType, $purpose, $branchId, $customerId, $notes, $_SESSION['admin_user_id']]);
+            $opId = $pdo->lastInsertId();
+            
+            $stmt = $pdo->prepare('INSERT INTO inventory_operation_items (op_id, product_id, quantity) VALUES (?, ?, ?)');
+            $stmt->execute([$opId, $productId, count($serials) ?: 1]);
+            $opItemId = $pdo->lastInsertId();
+            
+            foreach ($serials as $sId) {
+                $stmt = $pdo->prepare('INSERT INTO inventory_operation_serials (op_item_id, serial_id) VALUES (?, ?)');
+                $stmt->execute([$opItemId, $sId]);
+                $newStatus = ($opType === 'checkout') ? 2 : 1;
+                $stmt = $pdo->prepare('UPDATE inventory_serial_numbers SET status = ? WHERE serial_id = ?');
+                $stmt->execute([$newStatus, $sId]);
+            }
+            $pdo->commit();
+            header("Location: customer-details.php?id=$customerId&asset_saved=1");
+            exit;
+        } catch (Exception $e) {
+            if($pdo->inTransaction()) $pdo->rollBack();
+            $assetError = $e->getMessage();
+        }
+    }
+}
+
+// ── FETCH ASSET DATA ─────────────────────────────────────────────────────────
+$stmt = $pdo->prepare('
+    SELECT io.op_id, io.op_type, io.purpose, io.created_at, io.notes,
+           ip.product_name, ioi.quantity, ioi.op_item_id,
+           (SELECT GROUP_CONCAT(isn.serial_ref SEPARATOR ", ") 
+            FROM inventory_operation_serials ios 
+            JOIN inventory_serial_numbers isn ON ios.serial_id = isn.serial_id
+            WHERE ios.op_item_id = ioi.op_item_id) as serials
+    FROM inventory_operations io
+    JOIN inventory_operation_items ioi ON io.op_id = ioi.op_id
+    JOIN inventory_products ip ON ioi.product_id = ip.product_id
+    WHERE io.customer_id = :cid
+    ORDER BY io.created_at DESC
+');
+$stmt->execute(['cid' => $customerId]);
+$assetHistory = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+$products = $pdo->query('SELECT product_id, product_name FROM inventory_products WHERE status = 1 ORDER BY product_name ASC')->fetchAll(PDO::FETCH_ASSOC);
+$branches = $pdo->query('SELECT branch_id, branch_name FROM branches WHERE status = 1 ORDER BY branch_name ASC')->fetchAll(PDO::FETCH_ASSOC);
+
 $stmt = $pdo->prepare('SELECT * FROM customers WHERE customer_id = :id LIMIT 1');
 $stmt->execute(['id' => $customerId]);
 $customer = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -156,6 +229,9 @@ require '../../includes/header.php';
                       </a></li>
                     <li class="nav-item text-nowrap" role="presentation"><a class="nav-link mb-0 d-flex align-items-center gap-2 py-3 px-x1" id="contact-notes-tab" data-bs-toggle="tab" href="#notes" role="tab" aria-controls="notes" aria-selected="false"><span class="fas fa-file-alt icon"></span>
                         <h6 class="mb-0 text-600">Notes</h6>
+                      </a></li>
+                    <li class="nav-item text-nowrap" role="presentation"><a class="nav-link mb-0 d-flex align-items-center gap-2 py-3 px-x1" id="contact-assets-tab" data-bs-toggle="tab" href="#assets" role="tab" aria-controls="assets" aria-selected="false"><span class="fas fa-boxes icon"></span>
+                        <h6 class="mb-0 text-600">Assets</h6>
                       </a></li>
                   </ul>
                 </div>
@@ -629,6 +705,163 @@ require '../../includes/header.php';
                         </div>
                         <h6 class="mb-0 mt-2"><span class="fas fa-clock text-primary me-2"></span><span class="text-600">05 Sep, 2020</span><span class="text-500"> at </span><span class="text-600">10:21 AM</span></h6>
                         <p class="w-lg-75 w-xl-100 w-xxl-75 mb-0 border-top border-top-md-0 border-top-xl border-top-xxl-0 mt-x1 mt-md-4 mt-xl-x1 mt-xxl-4 pt-x1 pt-md-0 pt-xl-x1 pt-xxl-0 border-200 border-xl-200">By teaching your designers to put the needs of the customer first and coordinating design objectives with corporate objectives, you can foster a culture of design strategy. Everything your design team does should be based on a design strategy.</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="card-body tab-pane p-0" id="assets" role="tabpanel" aria-labelledby="contact-assets-tab">
+                    <div class="bg-body-tertiary p-x1">
+                      <?php if (isset($_GET['asset_saved'])): ?>
+                        <div class="alert alert-success py-2 mb-3 fs-10">Asset operation saved successfully.</div>
+                      <?php endif; ?>
+                      <?php if (isset($assetError)): ?>
+                        <div class="alert alert-danger py-2 mb-3 fs-10"><?= htmlspecialchars($assetError) ?></div>
+                      <?php endif; ?>
+                      
+                      <div class="row g-3">
+                        <div class="col-lg-8">
+                          <div class="card shadow-none">
+                            <div class="card-header bg-white border-bottom border-200 py-2">
+                              <h6 class="mb-0">Asset History</h6>
+                            </div>
+                            <div class="card-body p-0">
+                              <div class="table-responsive">
+                                <table class="table table-sm table-striped fs-11 mb-0">
+                                  <thead class="bg-200">
+                                    <tr>
+                                      <th class="ps-x1">Date</th>
+                                      <th>Type</th>
+                                      <th>Product</th>
+                                      <th>Qty</th>
+                                      <th>Serials</th>
+                                      <th class="pe-x1 text-end">Action</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    <?php if (empty($assetHistory)): ?>
+                                      <tr><td colspan="6" class="text-center py-3 text-500">No asset records found for this customer.</td></tr>
+                                    <?php else: ?>
+                                      <?php foreach ($assetHistory as $asset): ?>
+                                        <tr>
+                                          <td class="ps-x1 text-nowrap"><?= date('M d, Y', strtotime($asset['created_at'])) ?></td>
+                                          <td>
+                                            <span class="badge badge-subtle-<?= $asset['op_type'] === 'checkout' ? 'primary' : 'success' ?> fs-11">
+                                              <?= ucfirst($asset['op_type']) ?>
+                                            </span>
+                                          </td>
+                                          <td class="fw-semi-bold"><?= htmlspecialchars($asset['product_name']) ?></td>
+                                          <td><?= $asset['quantity'] ?></td>
+                                          <td class="text-600"><?= htmlspecialchars((string)$asset['serials']) ?></td>
+                                          <td class="pe-x1 text-end">
+                                            <a href="../inventory/operation-print.php?op_id=<?= $asset['op_id'] ?>" target="_blank" class="btn btn-link p-0 text-600"><span class="fas fa-print"></span></a>
+                                          </td>
+                                        </tr>
+                                      <?php endforeach; ?>
+                                    <?php endif; ?>
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="col-lg-4">
+                          <!-- Compact Checkout -->
+                          <div class="card shadow-none mb-3">
+                            <div class="card-header bg-primary text-white py-2"><h6 class="mb-0 text-white"><span class="fas fa-sign-out-alt me-2"></span>Quick Checkout</h6></div>
+                            <div class="card-body p-2">
+                              <form method="post" action="customer-details.php?id=<?= $customerId ?>">
+                                <input type="hidden" name="asset_action" value="checkout">
+                                <div class="mb-2">
+                                  <label class="form-label fs-11 mb-1">Product</label>
+                                  <select class="form-select form-select-sm js-asset-prod" name="product_id" required data-type="checkout">
+                                    <option value="" disabled selected>Select Product</option>
+                                    <?php foreach($products as $p): ?>
+                                      <option value="<?= $p['product_id'] ?>"><?= htmlspecialchars($p['product_name']) ?></option>
+                                    <?php endforeach; ?>
+                                  </select>
+                                </div>
+                                <div class="mb-2">
+                                  <label class="form-label fs-11 mb-1">Serials</label>
+                                  <select class="form-select form-select-sm js-asset-serials" name="serials[]" multiple data-placeholder="Select Serials">
+                                  </select>
+                                </div>
+                                <div class="mb-2">
+                                  <label class="form-label fs-11 mb-1">Branch</label>
+                                  <select class="form-select form-select-sm" name="branch_id" required>
+                                    <?php foreach($branches as $b): ?>
+                                      <option value="<?= $b['branch_id'] ?>"><?= htmlspecialchars($b['branch_name']) ?></option>
+                                    <?php endforeach; ?>
+                                  </select>
+                                </div>
+                                <button class="btn btn-primary btn-sm w-100" type="submit">Issue Asset</button>
+                              </form>
+                            </div>
+                          </div>
+                          
+                          <!-- Compact Checkin -->
+                          <div class="card shadow-none">
+                            <div class="card-header bg-success text-white py-2"><h6 class="mb-0 text-white"><span class="fas fa-sign-in-alt me-2"></span>Quick Return</h6></div>
+                            <div class="card-body p-2">
+                              <form method="post" action="customer-details.php?id=<?= $customerId ?>">
+                                <input type="hidden" name="asset_action" value="checkin">
+                                <div class="mb-2">
+                                  <label class="form-label fs-11 mb-1">Product</label>
+                                  <select class="form-select form-select-sm js-asset-prod" name="product_id" required data-type="checkin">
+                                    <option value="" disabled selected>Select Product</option>
+                                    <?php foreach($products as $p): ?>
+                                      <option value="<?= $p['product_id'] ?>"><?= htmlspecialchars($p['product_name']) ?></option>
+                                    <?php endforeach; ?>
+                                  </select>
+                                </div>
+                                <div class="mb-2">
+                                  <label class="form-label fs-11 mb-1">Serials</label>
+                                  <select class="form-select form-select-sm js-asset-serials" name="serials[]" multiple data-placeholder="Select Serials">
+                                  </select>
+                                </div>
+                                <div class="mb-2">
+                                  <label class="form-label fs-11 mb-1">Branch</label>
+                                  <select class="form-select form-select-sm" name="branch_id" required>
+                                    <?php foreach($branches as $b): ?>
+                                      <option value="<?= $b['branch_id'] ?>"><?= htmlspecialchars($b['branch_name']) ?></option>
+                                    <?php endforeach; ?>
+                                  </select>
+                                </div>
+                                <button class="btn btn-success btn-sm w-100 text-white" type="submit">Return Asset</button>
+                              </form>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const prodSelects = document.querySelectorAll('.js-asset-prod');
+    prodSelects.forEach(sel => {
+        sel.addEventListener('change', function() {
+            const type = this.dataset.type;
+            const pid = this.value;
+            const serialSel = this.closest('form').querySelector('.js-asset-serials');
+            
+            fetch(`customer-details.php?id=<?= $customerId ?>&ajax_get_serials_${type}=1&pid=${pid}`)
+                .then(r => r.json())
+                .then(data => {
+                    serialSel.innerHTML = data.map(s => `<option value="${s.serial_id}">${s.serial_ref}</option>`).join('');
+                    if(window.Choices) {
+                        if(serialSel._choices) serialSel._choices.destroy();
+                        serialSel._choices = new window.Choices(serialSel, { removeItemButton: true, itemSelectText: '' });
+                    }
+                });
+        });
+        
+        if(window.Choices) new window.Choices(sel, { searchEnabled: true, itemSelectText: '' });
+    });
+});
+</script>
                       </div>
                     </div>
                   </div>
