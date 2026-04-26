@@ -82,7 +82,6 @@ args=(
   "--triggers"
   "--events"
   "--add-drop-table"
-  "--databases"
   "$db_name"
 )
 

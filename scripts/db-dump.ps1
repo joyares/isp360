@@ -65,7 +65,6 @@ $args = @(
     "--triggers",
     "--events",
     "--add-drop-table",
-    "--databases",
     $dbName
 )
 
