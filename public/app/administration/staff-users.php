@@ -317,7 +317,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           // Fetch companies (mycompany)
           $companies = [];
           try {
-            $companiesStmt = $pdo->query("SELECT id, company FROM mycompany WHERE status = 1");
+            $companiesStmt = $pdo->query("SELECT id, company FROM companies WHERE status = 1");
             $companies = $companiesStmt ? $companiesStmt->fetchAll(PDO::FETCH_ASSOC) : [];
           } catch (Throwable $e) {
             $companies = [];

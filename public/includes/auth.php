@@ -46,6 +46,30 @@ if (!function_exists('ispts_get_logout_path')) {
     }
 }
 
+if (!function_exists('ispts_resolve_app_base_path')) {
+    function ispts_resolve_app_base_path(?string $publicRootPath = null): string
+    {
+        $documentRootPath = isset($_SERVER['DOCUMENT_ROOT']) ? realpath((string) $_SERVER['DOCUMENT_ROOT']) : false;
+        $resolvedPublicRootPath = $publicRootPath !== null ? realpath($publicRootPath) : realpath(dirname(__DIR__));
+
+        if (!$documentRootPath || !$resolvedPublicRootPath) {
+            return '';
+        }
+
+        $normalizedDocumentRoot = rtrim(str_replace('\\', '/', $documentRootPath), '/');
+        $normalizedPublicRoot = rtrim(str_replace('\\', '/', $resolvedPublicRootPath), '/');
+
+        if ($normalizedDocumentRoot === '' || strpos($normalizedPublicRoot, $normalizedDocumentRoot) !== 0) {
+            return '';
+        }
+
+        $appBasePath = substr($normalizedPublicRoot, strlen($normalizedDocumentRoot));
+        $appBasePath = '/' . trim((string) $appBasePath, '/');
+
+        return $appBasePath === '/' ? '' : $appBasePath;
+    }
+}
+
 if (!function_exists('ispts_require_authentication')) {
     function ispts_require_authentication(string $appBasePath = ''): void
     {

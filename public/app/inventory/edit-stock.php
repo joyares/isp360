@@ -1,0 +1,622 @@
+<?php
+
+declare(strict_types=1);
+
+require_once __DIR__ . '/../../../app/Core/Database.php';
+require_once __DIR__ . '/../../../app/Helpers/ispts_ImageHelper.php';
+
+use App\Core\Database;
+use App\Helpers\ispts_ImageHelper;
+
+$pdo = Database::getConnection();
+
+$ispts_has_table = static function (\PDO $pdo, string $table): bool {
+  $stmt = $pdo->prepare(
+    'SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table'
+  );
+  $stmt->bindValue(':table', $table);
+  $stmt->execute();
+
+  return (int) $stmt->fetchColumn() > 0;
+};
+
+$ispts_has_column = static function (\PDO $pdo, string $table, string $column): bool {
+  $stmt = $pdo->prepare(
+    'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column'
+  );
+  $stmt->bindValue(':table', $table);
+  $stmt->bindValue(':column', $column);
+  $stmt->execute();
+
+  return (int) $stmt->fetchColumn() > 0;
+};
+
+$branchesTableExists = $ispts_has_table($pdo, 'branches');
+$partnersTableExists = $ispts_has_table($pdo, 'partners');
+
+// ── SESSION ───────────────────────────────────────────────────────────────────
+
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+}
+
+$loggedInUserId = (int) ($_SESSION['admin_user_id'] ?? 0);
+$loggedInName   = (string) ($_SESSION['admin_full_name'] ?? 'Unknown');
+
+$alert          = null;
+$currentPath    = $_SERVER['PHP_SELF'] ?? '/app/inventory/edit-stock.php';
+
+// ── POST HANDLER ──────────────────────────────────────────────────────────────
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = (string) ($_POST['action'] ?? '');
+
+    if ($action === 'save_stock_invoice') {
+        $invoiceId   = isset($_POST['invoice_id'])   ? (int) $_POST['invoice_id']   : 0;
+        $branchId    = isset($_POST['branch_id'])    ? (int) $_POST['branch_id']    : 0;
+        $vendorId    = isset($_POST['vendor_id'])    ? (int) $_POST['vendor_id']    : 0;
+        $invoiceDate = trim((string) ($_POST['invoice_date'] ?? ''));
+        $paymentMode = in_array($_POST['payment_mode'] ?? '', ['cash', 'partial', 'emi'], true)
+                       ? (string) $_POST['payment_mode'] : 'cash';
+        $dueDays     = isset($_POST['due_days'])  ? max(1, (int) $_POST['due_days'])  : 30;
+        $emiCount    = isset($_POST['emi_count']) ? max(1, (int) $_POST['emi_count']) : 1;
+        $manualTotalDiscount = isset($_POST['manual_total_discount'])
+          ? max(0.0, (float) $_POST['manual_total_discount'])
+          : 0.0;
+        $refEmployee = trim((string) ($_POST['ref_employee'] ?? ''));
+        $notes       = trim((string) ($_POST['notes']        ?? ''));
+        $rawItems    = isset($_POST['items'])        && is_array($_POST['items'])        ? $_POST['items']        : [];
+        $rawEmi      = isset($_POST['emi_schedule']) && is_array($_POST['emi_schedule']) ? $_POST['emi_schedule'] : [];
+        $rawPartial  = isset($_POST['partial_schedule']) && is_array($_POST['partial_schedule']) ? $_POST['partial_schedule'] : [];
+        
+        $errors = [];
+        if ($invoiceId <= 0)    $errors[] = 'Invalid invoice ID.';
+        if ($branchId <= 0)     $errors[] = 'Please select a branch.';
+        if ($vendorId <= 0)     $errors[] = 'Please select a vendor.';
+        if ($invoiceDate === '') $errors[] = 'Invoice date is required.';
+        if (empty($rawItems))   $errors[] = 'Please add at least one product item.';
+
+        $cleanItems = [];
+        foreach ($rawItems as $rawItem) {
+            if (!is_array($rawItem)) continue;
+            $productId      = isset($rawItem['product_id'])       ? (int) $rawItem['product_id']                  : 0;
+            $qty            = isset($rawItem['quantity'])          ? max(1, (int) $rawItem['quantity'])             : 1;
+            $unitPrice      = isset($rawItem['unit_price'])        ? max(0.0, (float) $rawItem['unit_price'])       : 0.0;
+            $discPerUnit    = isset($rawItem['discount_per_unit']) ? max(0.0, (float) $rawItem['discount_per_unit']) : 0.0;
+            $brand          = trim((string) ($rawItem['brand']           ?? ''));
+            $warrantyPeriod = trim((string) ($rawItem['warranty_period'] ?? ''));
+            $warrantyUnit   = trim((string) ($rawItem['warranty_unit']   ?? ''));
+            $serialsRaw     = isset($rawItem['serials']) && is_array($rawItem['serials']) ? $rawItem['serials'] : [];
+
+            if ($productId <= 0) continue;
+
+            if ($warrantyPeriod !== '' && in_array($warrantyUnit, ['Days', 'Months', 'Years'], true)) {
+              $warrantyPeriod .= ' ' . $warrantyUnit;
+            }
+
+            $lineSubtotal = round($qty * $unitPrice, 2);
+            $lineDiscount = round($qty * $discPerUnit, 2);
+            $lineTotal    = round($lineSubtotal - $lineDiscount, 2);
+            if ($lineTotal < 0) $lineTotal = 0.0;
+
+            $serials = [];
+            foreach ($serialsRaw as $sr) {
+                $sr = trim((string) $sr);
+                if ($sr !== '') $serials[] = $sr;
+            }
+
+            $cleanItems[] = [
+                'product_id'        => $productId,
+                'brand'             => $brand           !== '' ? $brand           : null,
+                'quantity'          => $qty,
+                'unit_price'        => $unitPrice,
+                'discount_per_unit' => $discPerUnit,
+                'warranty_period'   => $warrantyPeriod  !== '' ? $warrantyPeriod  : null,
+                'line_subtotal'     => $lineSubtotal,
+                'line_discount'     => $lineDiscount,
+                'line_total'        => $lineTotal,
+                'serials'           => $serials,
+            ];
+        }
+
+        if (empty($cleanItems)) $errors[] = 'Please add at least one valid product item.';
+
+        if (empty($errors)) {
+            try {
+                $pdo->beginTransaction();
+
+                $subtotal      = 0.0;
+                foreach ($cleanItems as $ci) {
+                    $subtotal += $ci['line_subtotal'];
+                }
+                $totalDiscount = $manualTotalDiscount;
+                $grandTotal    = round($subtotal - $totalDiscount, 2);
+                if ($grandTotal < 0) $grandTotal = 0.0;
+
+                // Handle image upload
+                $imageFileName = null;
+                if (isset($_FILES['invoice_image']) && (int) $_FILES['invoice_image']['error'] === UPLOAD_ERR_OK) {
+                    $imageHelper   = new ispts_ImageHelper();
+                    $imageFileName = $imageHelper->ispts_compress($_FILES['invoice_image']);
+                }
+
+                $imageSql = $imageFileName !== null ? 'invoice_image = :invoice_image,' : '';
+                $invStmt = $pdo->prepare(
+                    "UPDATE inventory_stock_invoices SET 
+                       branch_id = :branch_id, vendor_id = :vendor_id, invoice_date = :invoice_date, 
+                       $imageSql notes = :notes, payment_mode = :payment_mode, subtotal = :subtotal, 
+                       total_discount = :total_discount, grand_total = :grand_total, due_days = :due_days, 
+                       emi_count = :emi_count, ref_employee = :ref_employee 
+                     WHERE invoice_id = :invoice_id"
+                );
+                $invStmt->bindValue(':invoice_id', $invoiceId, \PDO::PARAM_INT);
+                $invStmt->bindValue(':branch_id',      $branchId,       \PDO::PARAM_INT);
+                $invStmt->bindValue(':vendor_id',      $vendorId,       \PDO::PARAM_INT);
+                $invStmt->bindValue(':invoice_date',   $invoiceDate);
+                $invStmt->bindValue(':notes',          $notes !== '' ? $notes : null, \PDO::PARAM_STR);
+                $invStmt->bindValue(':payment_mode',   $paymentMode);
+                $invStmt->bindValue(':subtotal',       $subtotal);
+                $invStmt->bindValue(':total_discount', $totalDiscount);
+                $invStmt->bindValue(':grand_total',    $grandTotal);
+                $invStmt->bindValue(':due_days',   $paymentMode === 'partial' ? $dueDays  : null,
+                                                   $paymentMode === 'partial' ? \PDO::PARAM_INT : \PDO::PARAM_NULL);
+                $invStmt->bindValue(':emi_count',  $paymentMode === 'emi'     ? $emiCount : null,
+                                                   $paymentMode === 'emi'     ? \PDO::PARAM_INT : \PDO::PARAM_NULL);
+                $invStmt->bindValue(':ref_employee',  $refEmployee !== '' ? $refEmployee : null, \PDO::PARAM_STR);
+                if ($imageFileName !== null) {
+                    $invStmt->bindValue(':invoice_image', $imageFileName, \PDO::PARAM_STR);
+                }
+                $invStmt->execute();
+
+                // Clear and re-insert child records
+                $pdo->prepare('DELETE FROM inventory_stock_invoice_items WHERE invoice_id = :id')->execute(['id' => $invoiceId]);
+                $pdo->prepare('DELETE FROM inventory_serial_numbers WHERE invoice_id = :id')->execute(['id' => $invoiceId]);
+                $pdo->prepare('DELETE FROM inventory_stock_payments WHERE invoice_id = :id')->execute(['id' => $invoiceId]);
+
+                $itemInsert = $pdo->prepare(
+                    'INSERT INTO inventory_stock_invoice_items
+                     (invoice_id, product_id, brand, quantity, unit_price, discount_per_unit,
+                      warranty_period, line_subtotal, line_discount, line_total, status)
+                     VALUES
+                     (:invoice_id, :product_id, :brand, :quantity, :unit_price, :discount_per_unit,
+                      :warranty_period, :line_subtotal, :line_discount, :line_total, 1)'
+                );
+                $serialInsert = $pdo->prepare(
+                    'INSERT INTO inventory_serial_numbers
+                     (item_id, invoice_id, product_id, serial_ref, status)
+                     VALUES (:item_id, :invoice_id, :product_id, :serial_ref, 1)'
+                );
+
+                foreach ($cleanItems as $ci) {
+                    $itemInsert->bindValue(':invoice_id',        $invoiceId,           \PDO::PARAM_INT);
+                    $itemInsert->bindValue(':product_id',        $ci['product_id'],    \PDO::PARAM_INT);
+                    $itemInsert->bindValue(':brand',             $ci['brand'],         \PDO::PARAM_STR);
+                    $itemInsert->bindValue(':quantity',          $ci['quantity'],      \PDO::PARAM_INT);
+                    $itemInsert->bindValue(':unit_price',        $ci['unit_price']);
+                    $itemInsert->bindValue(':discount_per_unit', $ci['discount_per_unit']);
+                    $itemInsert->bindValue(':warranty_period',   $ci['warranty_period'], \PDO::PARAM_STR);
+                    $itemInsert->bindValue(':line_subtotal',     $ci['line_subtotal']);
+                    $itemInsert->bindValue(':line_discount',     $ci['line_discount']);
+                    $itemInsert->bindValue(':line_total',        $ci['line_total']);
+                    $itemInsert->execute();
+
+                    $itemId = (int) $pdo->lastInsertId();
+                    foreach ($ci['serials'] as $sr) {
+                        $serialInsert->execute([
+                            'item_id'    => $itemId,
+                            'invoice_id' => $invoiceId,
+                            'product_id' => $ci['product_id'],
+                            'serial_ref' => $sr
+                        ]);
+                    }
+                }
+
+                if ($paymentMode === 'partial' && !empty($rawPartial)) {
+                    $payInsert = $pdo->prepare('INSERT INTO inventory_stock_payments (invoice_id, due_date, amount, payment_note, status) VALUES (:id, :d, :a, :n, 1)');
+                    foreach ($rawPartial as $p) {
+                        $payInsert->execute([
+                            'id' => $invoiceId,
+                            'd'  => $p['due_date'],
+                            'a'  => $p['amount'],
+                            'n'  => 'Partial payment installment'
+                        ]);
+                    }
+                } elseif ($paymentMode === 'emi' && !empty($rawEmi)) {
+                    $payInsert = $pdo->prepare('INSERT INTO inventory_stock_payments (invoice_id, due_date, amount, payment_note, status) VALUES (:id, :d, :a, :n, 1)');
+                    foreach ($rawEmi as $e) {
+                        $payInsert->execute([
+                            'id' => $invoiceId,
+                            'd'  => $e['due_date'],
+                            'a'  => $e['amount'],
+                            'n'  => $e['note'] ?? ''
+                        ]);
+                    }
+                }
+
+                $pdo->commit();
+                $alert = ['type' => 'success', 'message' => 'Invoice updated successfully.'];
+                header('Location: manage-stock.php?updated=1');
+                exit;
+
+            } catch (\Throwable $ex) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                $alert = ['type' => 'danger', 'message' => 'Update failed: ' . $ex->getMessage()];
+            }
+        } else {
+            $alert = ['type' => 'danger', 'message' => implode(' ', $errors)];
+        }
+    }
+}
+
+// ── DATA LOADING ──────────────────────────────────────────────────────────────
+
+$editId = isset($_GET['edit_id']) ? (int) $_GET['edit_id'] : 0;
+if ($editId <= 0) {
+    header('Location: manage-stock.php');
+    exit;
+}
+
+$editStmt = $pdo->prepare('SELECT * FROM inventory_stock_invoices WHERE invoice_id = :id LIMIT 1');
+$editStmt->execute(['id' => $editId]);
+$editInvoice = $editStmt->fetch(\PDO::FETCH_ASSOC);
+
+if (!$editInvoice) {
+    header('Location: manage-stock.php');
+    exit;
+}
+
+$vendors = $pdo->query('SELECT vendor_id, vendor_name FROM inventory_vendors WHERE status = 1 ORDER BY vendor_name ASC')->fetchAll(\PDO::FETCH_ASSOC);
+$productsAll = $pdo->query('SELECT p.product_id, p.product_name, COALESCE(su.unit_name, pu.unit_name, \'\') AS sub_category_unit_name FROM inventory_products p LEFT JOIN inventory_sub_categories sc ON sc.sub_category_id = p.sub_category_id LEFT JOIN inventory_units su ON su.unit_id = sc.unit_id LEFT JOIN inventory_units pu ON pu.unit_id = p.unit_id WHERE p.status = 1 ORDER BY p.product_name ASC')->fetchAll(\PDO::FETCH_ASSOC);
+
+// Simplified branch loading
+$branches = [];
+if ($branchesTableExists) {
+    $companiesTableExists = $ispts_has_table($pdo, 'companies');
+    $branchJoin = '';
+    $branchCompanySelect = ", '' AS company_name";
+    if ($companiesTableExists) {
+        $branchJoin = ' LEFT JOIN companies p ON p.id = b.partner_id';
+        $branchCompanySelect = ", COALESCE(NULLIF(p.company, ''), p.firstname, '') AS company_name";
+    }
+    $branches = $pdo->query('SELECT b.branch_id, b.branch_name' . $branchCompanySelect . ' FROM branches b' . $branchJoin . ' ORDER BY b.branch_name ASC')->fetchAll(\PDO::FETCH_ASSOC);
+}
+
+$itemStmt = $pdo->prepare('SELECT * FROM inventory_stock_invoice_items WHERE invoice_id = :id ORDER BY item_id ASC');
+$itemStmt->execute(['id' => $editId]);
+$editItems = $itemStmt->fetchAll(\PDO::FETCH_ASSOC);
+
+$serialStmt = $pdo->prepare('SELECT item_id, serial_ref FROM inventory_serial_numbers WHERE invoice_id = :id');
+$serialStmt->execute(['id' => $editId]);
+$editSerials = [];
+foreach ($serialStmt->fetchAll(\PDO::FETCH_ASSOC) as $s) {
+    $editSerials[(int) $s['item_id']][] = $s['serial_ref'];
+}
+
+$payStmt = $pdo->prepare('SELECT due_date, amount, payment_note FROM inventory_stock_payments WHERE invoice_id = :id ORDER BY due_date ASC');
+$payStmt->execute(['id' => $editId]);
+$editPayments = $payStmt->fetchAll(\PDO::FETCH_ASSOC);
+
+$jsProducts      = json_encode($productsAll,    JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+$jsVendors       = json_encode($vendors,        JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+$jsBranches      = json_encode($branches,       JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+$jsEditInvoice   = json_encode($editInvoice,    JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+$jsEditItems     = json_encode($editItems,      JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+$jsEditSerials   = json_encode($editSerials,    JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+$jsEditPayments  = json_encode($editPayments,   JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+
+require '../../includes/header.php';
+?>
+
+<nav class="mb-2" aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="<?= $appBasePath ?>/index.php">Home</a></li>
+    <li class="breadcrumb-item"><a href="<?= $appBasePath ?>/app/inventory/manage-stock.php">Inventory</a></li>
+    <li class="breadcrumb-item active">Edit Stock Invoice</li>
+  </ol>
+</nav>
+
+<div class="d-flex mb-4 align-items-center">
+    <div class="me-3">
+        <a class="btn btn-falcon-default btn-sm" href="manage-stock.php">
+            <span class="fas fa-chevron-left me-1"></span>Back to List
+        </a>
+    </div>
+    <h2 class="text-bold mb-0">Edit Stock Invoice: <?= htmlspecialchars((string)$editInvoice['invoice_number']) ?></h2>
+</div>
+
+<?php if ($alert): ?>
+  <div class="alert alert-<?= htmlspecialchars($alert['type']) ?> py-2 mb-3" role="alert">
+    <?= htmlspecialchars($alert['message']) ?>
+  </div>
+<?php endif; ?>
+
+<form method="post" action="<?= htmlspecialchars($currentPath . '?edit_id=' . $editId) ?>" enctype="multipart/form-data" id="stockInvoiceForm">
+  <input type="hidden" name="action" value="save_stock_invoice">
+  <input type="hidden" name="invoice_id" value="<?= $editId ?>">
+
+<div class="row g-3">
+  <div class="col-xl-8">
+    <div class="card mb-3">
+      <div class="card-header border-bottom border-200 d-flex align-items-center justify-content-between">
+        <h6 class="mb-0">Product Items</h6>
+        <div class="d-flex align-items-center gap-2">
+            <select class="form-select form-select-sm" id="branch_id" name="branch_id" style="min-width: 200px;" required>
+                <option value="" disabled>Select Branch</option>
+                <?php foreach ($branches as $b): ?>
+                    <option value="<?= (int)$b['branch_id'] ?>" <?= (int)$editInvoice['branch_id'] === (int)$b['branch_id'] ? 'selected' : '' ?>>
+                        <?= htmlspecialchars((string)$b['branch_name']) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            <button type="button" class="btn btn-sm btn-falcon-success" id="addItemBtn">
+                <span class="fas fa-plus me-1"></span>Add Item
+            </button>
+        </div>
+      </div>
+      <div class="card-body p-0" id="itemRowsContainer">
+        <div class="text-center text-600 py-4 fs-10" id="noItemsPlaceholder" style="display:none;">
+          Click <strong>Add Item</strong> to begin adding products.
+        </div>
+      </div>
+      <div class="card-footer border-top border-200 bg-body-tertiary">
+        <div class="row justify-content-end">
+          <div class="col-md-4">
+            <table class="table table-sm mb-0 fs-10">
+              <tr><td>Subtotal</td><td class="text-end fw-semibold" id="summarySubtotal">0.00</td></tr>
+              <tr><td>Discount</td><td><input class="form-control form-control-sm text-end text-danger" type="number" step="0.01" value="<?= (float)$editInvoice['total_discount'] ?>" id="manualTotalDiscount" name="manual_total_discount"></td></tr>
+              <tr class="border-top border-200"><th>Grand Total</th><th class="text-end text-primary fs-9" id="summaryGrandTotal">0.00</th></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header border-bottom border-200"><h6 class="mb-0">Payment Mode</h6></div>
+      <div class="card-body">
+        <div class="d-flex gap-4 mb-3">
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="payment_mode" id="pm_cash" value="cash" <?= $editInvoice['payment_mode'] === 'cash' ? 'checked' : '' ?>>
+                <label class="form-check-label" for="pm_cash">Cash (Full)</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="payment_mode" id="pm_partial" value="partial" <?= $editInvoice['payment_mode'] === 'partial' ? 'checked' : '' ?>>
+                <label class="form-check-label" for="pm_partial">Partial / EMI</label>
+            </div>
+        </div>
+        <div id="partialSection" style="display:none;">
+            <div id="partialScheduleContainer"></div>
+        </div>
+        <div id="emiSection" style="display:none;">
+            <div class="row g-2 mb-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label">EMI Count</label>
+                    <input class="form-control" type="number" id="emi_count" name="emi_count" value="<?= (int)$editInvoice['emi_count'] ?>" min="1">
+                </div>
+                <div class="col-md-3">
+                    <button type="button" class="btn btn-falcon-info btn-sm" id="generateEmiBtn">Re-generate</button>
+                </div>
+            </div>
+            <div id="emiScheduleContainer"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header border-bottom border-200"><h6 class="mb-0">Notes & Reference</h6></div>
+      <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label">Reference Employee</label>
+                <input class="form-control" name="ref_employee" value="<?= htmlspecialchars((string)$editInvoice['ref_employee']) ?>" type="text">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Invoice Image</label>
+                <input class="form-control" type="file" name="invoice_image" accept="image/*">
+                <?php if ($editInvoice['invoice_image']): ?>
+                    <div class="mt-2"><small class="text-success">Current image exists</small></div>
+                <?php endif; ?>
+            </div>
+            <div class="col-12">
+                <label class="form-label">Notes</label>
+                <textarea class="form-control" name="notes" rows="3"><?= htmlspecialchars((string)$editInvoice['notes']) ?></textarea>
+            </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="d-flex justify-content-end gap-2 mb-5">
+        <a class="btn btn-falcon-default" href="manage-stock.php">Cancel</a>
+        <button class="btn btn-primary" type="submit">Update Invoice</button>
+    </div>
+  </div>
+
+  <div class="col-xl-4">
+    <div class="card mb-3">
+      <div class="card-header border-bottom border-200 d-flex justify-content-between align-items-center">
+        <h6 class="mb-0">General Info</h6>
+        <input class="form-control form-control-sm" style="width: 140px;" name="invoice_date" type="date" value="<?= $editInvoice['invoice_date'] ?>" required>
+      </div>
+      <div class="card-body">
+        <div class="mb-3">
+            <label class="form-label">Vendor</label>
+            <select class="form-select" name="vendor_id" id="vendor_id" required>
+                <?php foreach ($vendors as $v): ?>
+                    <option value="<?= (int)$v['vendor_id'] ?>" <?= (int)$editInvoice['vendor_id'] === (int)$v['vendor_id'] ? 'selected' : '' ?>>
+                        <?= htmlspecialchars((string)$v['vendor_name']) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="border rounded-2 p-2" style="background: #f9f9f9;">
+            <div class="fw-bold mb-1 fs-10">Invoice Summary</div>
+            <div class="d-flex justify-content-between fs-10"><span>Branch:</span><span id="previewBranch">-</span></div>
+            <div class="d-flex justify-content-between fs-10"><span>Grand Total:</span><span class="fw-bold text-primary" id="previewGrand">0.00</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</form>
+
+<script>
+(function() {
+    'use strict';
+    const PRODUCTS = <?= $jsProducts ?>;
+    const EDIT_ITEMS = <?= $jsEditItems ?>;
+    const EDIT_SERIALS = <?= $jsEditSerials ?>;
+    const EDIT_PAYMENTS = <?= $jsEditPayments ?>;
+    const EDIT_INVOICE = <?= $jsEditInvoice ?>;
+    
+    let rowCounter = 0;
+
+    function esc(str) {
+        return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function buildItemRowHtml(idx) {
+        let opt = PRODUCTS.map(p => `<option value="${p.product_id}" data-unit="${esc(p.sub_category_unit_name)}">${esc(p.product_name)}</option>`).join('');
+        return `
+        <div class="item-row border-bottom p-3" data-idx="${idx}">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-5">
+                    <label class="form-label fs-11">Product</label>
+                    <select class="form-select form-select-sm js-product-search" name="items[${idx}][product_id]" id="product_${idx}" onchange="onProductChange(${idx})" required>
+                        <option value="" disabled selected>Search Product...</option>
+                        ${opt}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fs-11">Brand</label>
+                    <input class="form-control form-control-sm" name="items[${idx}][brand]">
+                </div>
+                <div class="col-md-1">
+                    <label class="form-label fs-11">Qty</label>
+                    <input class="form-control form-control-sm text-end" type="number" name="items[${idx}][quantity]" id="qty_${idx}" value="1" min="1" oninput="calcLine(${idx})">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fs-11">Unit Price</label>
+                    <input class="form-control form-control-sm text-end" type="number" step="0.01" name="items[${idx}][unit_price]" id="price_${idx}" value="0.00" oninput="calcLine(${idx})">
+                </div>
+                <input type="hidden" name="items[${idx}][discount_per_unit]" value="0">
+                <div class="col-md-2 d-flex gap-1 align-items-center">
+                    <div class="flex-grow-1">
+                        <label class="form-label fs-11">Line Total</label>
+                        <input class="form-control form-control-sm text-end bg-200" id="total_${idx}" value="0.00" readonly>
+                    </div>
+                    <button type="button" class="btn btn-link text-danger p-0 mt-3" onclick="removeRow(this)"><span class="fas fa-times-circle"></span></button>
+                </div>
+            </div>
+            <div class="mt-2" id="serials_${idx}"></div>
+        </div>`;
+    }
+
+    window.onProductChange = function(idx) {
+        renderSerials(idx);
+        updatePreview();
+    };
+
+    window.calcLine = function(idx) {
+        let q = parseFloat(document.getElementById(`qty_${idx}`).value) || 0;
+        let p = parseFloat(document.getElementById(`price_${idx}`).value) || 0;
+        document.getElementById(`total_${idx}`).value = (q * p).toFixed(2);
+        calcTotals();
+        renderSerials(idx);
+    };
+
+    function calcTotals() {
+        let sub = 0;
+        document.querySelectorAll('.item-row').forEach(row => {
+            let idx = row.dataset.idx;
+            sub += (parseFloat(document.getElementById(`qty_${idx}`).value) || 0) * (parseFloat(document.getElementById(`price_${idx}`).value) || 0);
+        });
+        document.getElementById('summarySubtotal').textContent = sub.toFixed(2);
+        let disc = parseFloat(document.getElementById('manualTotalDiscount').value) || 0;
+        document.getElementById('summaryGrandTotal').textContent = (sub - disc).toFixed(2);
+        document.getElementById('previewGrand').textContent = (sub - disc).toFixed(2);
+    }
+
+    function renderSerials(idx) {
+        let q = parseInt(document.getElementById(`qty_${idx}`).value) || 0;
+        let cont = document.getElementById(`serials_${idx}`);
+        let html = '';
+        for(let i=0; i<q; i++) {
+            html += `<input class="form-control form-control-sm d-inline-block me-1 mb-1" style="width:120px" name="items[${idx}][serials][]" placeholder="S/N ${i+1}">`;
+        }
+        cont.innerHTML = html || '<small class="text-500">No serials needed</small>';
+    }
+
+    window.removeRow = function(btn) {
+        btn.closest('.item-row').remove();
+        calcTotals();
+        if(!document.querySelector('.item-row')) document.getElementById('noItemsPlaceholder').style.display = 'block';
+    };
+
+    document.getElementById('addItemBtn').addEventListener('click', function() {
+        document.getElementById('noItemsPlaceholder').style.display = 'none';
+        let idx = rowCounter++;
+        document.getElementById('itemRowsContainer').insertAdjacentHTML('beforeend', buildItemRowHtml(idx));
+        let sel = document.getElementById(`product_${idx}`);
+        if(window.Choices) sel._choicesInstance = new window.Choices(sel, { searchEnabled: true, itemSelectText: '' });
+        updatePreview();
+    });
+
+    function updatePreview() {
+        let b = document.getElementById('branch_id');
+        document.getElementById('previewBranch').textContent = b.options[b.selectedIndex]?.text || '-';
+    }
+
+    document.getElementById('manualTotalDiscount').addEventListener('input', calcTotals);
+    document.getElementById('branch_id').addEventListener('change', updatePreview);
+    
+    document.querySelectorAll('input[name="payment_mode"]').forEach(r => {
+        r.addEventListener('change', function() {
+            document.getElementById('partialSection').style.display = this.value === 'partial' ? 'block' : 'none';
+            document.getElementById('emiSection').style.display = this.value === 'emi' ? 'block' : 'none';
+        });
+    });
+
+    // Prefill logic
+    document.addEventListener('DOMContentLoaded', function() {
+        if (EDIT_ITEMS.length > 0) {
+            EDIT_ITEMS.forEach(item => {
+                document.getElementById('addItemBtn').click();
+                let idx = rowCounter - 1;
+                let sel = document.getElementById(`product_${idx}`);
+                if (sel._choicesInstance) {
+                    sel._choicesInstance.setChoiceByValue(String(item.product_id));
+                } else {
+                    sel.value = item.product_id;
+                }
+                document.querySelector(`[name="items[${idx}][brand]"]`).value = item.brand || '';
+                document.getElementById(`qty_${idx}`).value = item.quantity;
+                document.getElementById(`price_${idx}`).value = item.unit_price;
+                calcLine(idx);
+                
+                let serialInputs = document.querySelectorAll(`[name="items[${idx}][serials][]"]`);
+                let srs = EDIT_SERIALS[item.item_id] || [];
+                srs.forEach((s, si) => { if(serialInputs[si]) serialInputs[si].value = s; });
+            });
+        }
+        
+        let mode = EDIT_INVOICE.payment_mode;
+        document.querySelector(`input[name="payment_mode"][value="${mode}"]`).checked = true;
+        document.querySelector(`input[name="payment_mode"][value="${mode}"]`).dispatchEvent(new Event('change'));
+        
+        if (mode === 'emi') {
+            document.getElementById('generateEmiBtn').click();
+            let rows = document.querySelectorAll('#emiScheduleContainer tr');
+            EDIT_PAYMENTS.forEach((p, pi) => {
+                if(rows[pi+1]) {
+                    rows[pi+1].querySelector('input[type="date"]').value = p.due_date;
+                    rows[pi+1].querySelector('input[type="number"]').value = p.amount;
+                }
+            });
+        }
+        calcTotals();
+        updatePreview();
+    });
+})();
+</script>
+
+<?php require '../../includes/footer.php'; ?>

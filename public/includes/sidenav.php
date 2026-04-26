@@ -66,27 +66,17 @@
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/inventory/products.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Products</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/inventory/add-stock.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Add Stock</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/inventory/manage-stock.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Manage Stock</span></div></a></li>
-                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/inventory/inventory-locations.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Inventory Locations</span></div></a></li>
+                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/inventory/stock-checkout.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Stock Checkout</span></div></a></li>
+                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/inventory/stock-checkin.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Stock Checkin</span></div></a></li>
+                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/inventory/edit-stock.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Edit Invoice</span></div></a></li>
+
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/inventory/stock-upload-history.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Stock Upload History</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/inventory/stock-items.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Stock Items</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/inventory/bulk-transfer.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Bulk Transfer</span></div></a></li>
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/inventory/transfer-history.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Transfer History</span></div></a></li>
                   </ul>
                 </li>
-                <li class="nav-item"><a class="nav-link dropdown-indicator collapsed" href="#user" role="button" data-bs-toggle="collapse" aria-expanded="false" aria-controls="user"><div class="d-flex align-items-center"><span class="nav-link-icon"><span class="fas fa-user"></span></span><span class="nav-link-text ps-1">Partners</span></div></a>
-                  <ul class="nav collapse" id="user">
-                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/partners/partner-mgmt.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Partner Mgmt</span></div></a></li>
-                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/partners/partner-list.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Partner List</span></div></a></li>
-                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/partners/add-partner.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Add Partner</span></div></a></li>
-                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/partners/deposit-reports.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Deposit Reports</span></div></a></li>
-                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/partners/payment-reports.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Payment Reports</span></div></a></li>
-                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/partners/partner-wallet.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Partner Wallet</span></div></a></li>
-                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/partners/partner-settlement.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Partner Settlement</span></div></a></li>
-                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/partners/revenue-report.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Revenue Report</span></div></a></li>
-                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/partners/share-price-mgmt.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Share &amp; Price Mgmt</span></div></a></li>
-                    <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/partners/renewal-report.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Renewal Report</span></div></a></li>
-                  </ul>
-                </li>
+
                 <li class="nav-item"><a class="nav-link dropdown-indicator collapsed" href="#finance" role="button" data-bs-toggle="collapse" aria-expanded="false" aria-controls="finance"><div class="d-flex align-items-center"><span class="nav-link-icon"><span class="fas fa-wallet"></span></span><span class="nav-link-text ps-1">Finance</span></div></a>
                   <ul class="nav collapse" id="finance">
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/finance/expense-management.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">Expense Management</span></div></a></li>

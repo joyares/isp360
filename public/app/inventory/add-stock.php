@@ -441,23 +441,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $invoiceNumber = 'SINV-' . date('Ymd') . '-' . strtoupper(bin2hex(random_bytes(3)));
 
+            $updateInvoiceId = isset($_POST['invoice_id']) ? (int) $_POST['invoice_id'] : 0;
+
             try {
                 $pdo->beginTransaction();
 
-                // Insert invoice header
-                $invStmt = $pdo->prepare(
-                    'INSERT INTO inventory_stock_invoices
-                   (invoice_number, branch_id, vendor_id, invoice_date, invoice_image, notes, payment_mode,
-                      subtotal, total_discount, grand_total, due_days, emi_count, ref_employee, created_by, status)
-                     VALUES
-                   (:invoice_number, :branch_id, :vendor_id, :invoice_date, :invoice_image, :notes, :payment_mode,
-                      :subtotal, :total_discount, :grand_total, :due_days, :emi_count, :ref_employee, :created_by, 1)'
-                );
-                $invStmt->bindValue(':invoice_number', $invoiceNumber);
+                if ($updateInvoiceId > 0) {
+                    // Update existing invoice
+                    $imageSql = $imageFileName !== null ? 'invoice_image = :invoice_image,' : '';
+                    $invStmt = $pdo->prepare(
+                        "UPDATE inventory_stock_invoices SET 
+                           branch_id = :branch_id, vendor_id = :vendor_id, invoice_date = :invoice_date, 
+                           $imageSql notes = :notes, payment_mode = :payment_mode, subtotal = :subtotal, 
+                           total_discount = :total_discount, grand_total = :grand_total, due_days = :due_days, 
+                           emi_count = :emi_count, ref_employee = :ref_employee 
+                         WHERE invoice_id = :invoice_id"
+                    );
+                    $invStmt->bindValue(':invoice_id', $updateInvoiceId, \PDO::PARAM_INT);
+                    if ($imageFileName !== null) {
+                        $invStmt->bindValue(':invoice_image', $imageFileName, \PDO::PARAM_STR);
+                    }
+                } else {
+                    $invStmt = $pdo->prepare(
+                        'INSERT INTO inventory_stock_invoices
+                       (invoice_number, branch_id, vendor_id, invoice_date, invoice_image, notes, payment_mode,
+                          subtotal, total_discount, grand_total, due_days, emi_count, ref_employee, created_by, status)
+                         VALUES
+                       (:invoice_number, :branch_id, :vendor_id, :invoice_date, :invoice_image, :notes, :payment_mode,
+                          :subtotal, :total_discount, :grand_total, :due_days, :emi_count, :ref_employee, :created_by, 1)'
+                    );
+                    $invStmt->bindValue(':invoice_number', $invoiceNumber);
+                    $invStmt->bindValue(':invoice_image',  $imageFileName,  \PDO::PARAM_STR);
+                    $invStmt->bindValue(':created_by',    $loggedInUserId, \PDO::PARAM_INT);
+                }
+
                 $invStmt->bindValue(':branch_id',      $branchId,       \PDO::PARAM_INT);
                 $invStmt->bindValue(':vendor_id',      $vendorId,       \PDO::PARAM_INT);
                 $invStmt->bindValue(':invoice_date',   $invoiceDate);
-                $invStmt->bindValue(':invoice_image',  $imageFileName,  \PDO::PARAM_STR);
                 $invStmt->bindValue(':notes',          $notes !== '' ? $notes : null, \PDO::PARAM_STR);
                 $invStmt->bindValue(':payment_mode',   $paymentMode);
                 $invStmt->bindValue(':subtotal',       $subtotal);
@@ -468,10 +488,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $invStmt->bindValue(':emi_count',  $paymentMode === 'emi'     ? $emiCount : null,
                                                    $paymentMode === 'emi'     ? \PDO::PARAM_INT : \PDO::PARAM_NULL);
                 $invStmt->bindValue(':ref_employee',  $refEmployee !== '' ? $refEmployee : null, \PDO::PARAM_STR);
-                $invStmt->bindValue(':created_by',    $loggedInUserId, \PDO::PARAM_INT);
                 $invStmt->execute();
 
-                $invoiceId = (int) $pdo->lastInsertId();
+                $invoiceId = $updateInvoiceId > 0 ? $updateInvoiceId : (int) $pdo->lastInsertId();
+
+                if ($updateInvoiceId > 0) {
+                    $pdo->prepare('DELETE FROM inventory_stock_invoice_items WHERE invoice_id = :id')->execute(['id' => $invoiceId]);
+                    $pdo->prepare('DELETE FROM inventory_serial_numbers WHERE invoice_id = :id')->execute(['id' => $invoiceId]);
+                    $pdo->prepare('DELETE FROM inventory_stock_payments WHERE invoice_id = :id')->execute(['id' => $invoiceId]);
+                }
 
                 // Insert line items + serials
                 $itemInsert = $pdo->prepare(
@@ -552,7 +577,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $pdo->commit();
 
-                header('Location: ' . $currentPath . '?saved=1&invoice_id=' . $invoiceId);
+                $isPopupPost = isset($_POST['popup']) && $_POST['popup'] == 1 ? '&popup=1' : '';
+                header('Location: ' . $currentPath . '?saved=1&invoice_id=' . $invoiceId . $isPopupPost);
                 exit;
 
             } catch (\Throwable $ex) {
@@ -608,6 +634,20 @@ $productsAll = $pdo->query(
 )->fetchAll(\PDO::FETCH_ASSOC);
 
   $branches = [];
+  $branchesTableExistsStmt = $pdo->prepare(
+    'SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table'
+  );
+  $branchesTableExistsStmt->bindValue(':table', 'branches');
+  $branchesTableExistsStmt->execute();
+  $branchesTableExists = (int) $branchesTableExistsStmt->fetchColumn() > 0;
+
+  $partnersTableExistsStmt = $pdo->prepare(
+    'SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table'
+  );
+  $partnersTableExistsStmt->bindValue(':table', 'partners');
+  $partnersTableExistsStmt->execute();
+  $partnersTableExists = (int) $partnersTableExistsStmt->fetchColumn() > 0;
+
   if ($branchesTableExists) {
     $branchIdColumn = $ispts_has_column($pdo, 'branches', 'branch_id') ? 'branch_id' : ($ispts_has_column($pdo, 'branches', 'id') ? 'id' : '');
     $branchNameColumn = $ispts_has_column($pdo, 'branches', 'branch_name') ? 'branch_name' : '';
@@ -618,14 +658,17 @@ $productsAll = $pdo->query(
       $branchJoin = '';
       $branchCompanySelect = ", '' AS company_name";
 
-      if ($partnersTableExists && $branchPartnerColumn !== '') {
-        $partnerIdColumn = $ispts_has_column($pdo, 'partners', 'partner_id') ? 'partner_id' : ($ispts_has_column($pdo, 'partners', 'id') ? 'id' : '');
-        $partnerNameColumn = $ispts_has_column($pdo, 'partners', 'partner_name') ? 'partner_name' : ($ispts_has_column($pdo, 'partners', 'company') ? 'company' : '');
+      // Since partners table is removed and companies is used for partners, we should join with companies table instead!
+      $companiesTableExistsStmt = $pdo->prepare(
+        'SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table'
+      );
+      $companiesTableExistsStmt->bindValue(':table', 'companies');
+      $companiesTableExistsStmt->execute();
+      $companiesTableExists = (int) $companiesTableExistsStmt->fetchColumn() > 0;
 
-        if ($partnerIdColumn !== '' && $partnerNameColumn !== '') {
-          $branchJoin = ' LEFT JOIN partners p ON p.' . $partnerIdColumn . ' = b.' . $branchPartnerColumn;
-          $branchCompanySelect = ', COALESCE(p.' . $partnerNameColumn . ", '') AS company_name";
-        }
+      if ($companiesTableExists && $branchPartnerColumn !== '') {
+        $branchJoin = ' LEFT JOIN companies p ON p.id = b.' . $branchPartnerColumn;
+        $branchCompanySelect = ", COALESCE(NULLIF(p.company, ''), p.firstname, p.username, '') AS company_name";
       }
 
       $branches = $pdo->query(
@@ -640,15 +683,71 @@ $productsAll = $pdo->query(
   }
 
 $preSelectedVendorId = isset($_GET['new_vendor']) ? (int) $_GET['new_vendor'] : 0;
-  $selectedBranchId = isset($_POST['branch_id']) ? (int) $_POST['branch_id'] : 0;
+$selectedBranchId = isset($_POST['branch_id']) ? (int) $_POST['branch_id'] : 0;
+
+$editId = isset($_GET['edit_id']) ? (int) $_GET['edit_id'] : 0;
+$editInvoice = null;
+$editItems = [];
+$editSerials = [];
+$editPayments = [];
+
+if ($editId > 0) {
+    $editStmt = $pdo->prepare('SELECT * FROM inventory_stock_invoices WHERE invoice_id = :id LIMIT 1');
+    $editStmt->bindValue(':id', $editId, \PDO::PARAM_INT);
+    $editStmt->execute();
+    $editInvoice = $editStmt->fetch(\PDO::FETCH_ASSOC);
+
+    if ($editInvoice) {
+        $selectedBranchId = (int) $editInvoice['branch_id'];
+        $preSelectedVendorId = (int) $editInvoice['vendor_id'];
+
+        $itemStmt = $pdo->prepare('SELECT * FROM inventory_stock_invoice_items WHERE invoice_id = :id ORDER BY item_id ASC');
+        $itemStmt->bindValue(':id', $editId, \PDO::PARAM_INT);
+        $itemStmt->execute();
+        $editItems = $itemStmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        $serialStmt = $pdo->prepare('SELECT item_id, serial_ref FROM inventory_serial_numbers WHERE invoice_id = :id ORDER BY item_id, serial_id');
+        $serialStmt->bindValue(':id', $editId, \PDO::PARAM_INT);
+        $serialStmt->execute();
+        foreach ($serialStmt->fetchAll(\PDO::FETCH_ASSOC) as $s) {
+            $editSerials[(int) $s['item_id']][] = $s['serial_ref'];
+        }
+
+        $payStmt = $pdo->prepare('SELECT due_date, amount, payment_note FROM inventory_stock_payments WHERE invoice_id = :id ORDER BY due_date ASC');
+        $payStmt->bindValue(':id', $editId, \PDO::PARAM_INT);
+        $payStmt->execute();
+        $editPayments = $payStmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+}
 
 $jsCategories    = json_encode(array_values($categoriesAll),    JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
 $jsSubCategories = json_encode(array_values($subCategoriesAll), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
 $jsProducts      = json_encode(array_values($productsAll),      JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
 $jsVendors       = json_encode(array_values($vendors),          JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
-  $jsBranches      = json_encode(array_values($branches),         JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+$jsBranches      = json_encode(array_values($branches),         JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
 
-require '../../includes/header.php';
+$jsEditInvoice   = json_encode($editInvoice, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+$jsEditItems     = json_encode($editItems, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+$jsEditSerials   = json_encode($editSerials, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+$jsEditPayments  = json_encode($editPayments, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+
+$isPopup = isset($_GET['popup']) && $_GET['popup'] == 1;
+
+if ($isPopup) {
+    require_once __DIR__ . '/../../includes/auth.php';
+    $appBasePath = ispts_resolve_app_base_path(dirname(__DIR__, 2));
+    ispts_require_authentication($appBasePath);
+}
+
+if (!$isPopup) {
+    require '../../includes/header.php';
+} else {
+    echo '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">';
+    echo '<link href="' . $appBasePath . '/assets/css/theme.min.css" rel="stylesheet" id="style-default">';
+    echo '<link href="' . $appBasePath . '/assets/css/user.min.css" rel="stylesheet" id="user-style-default">';
+    echo '<style>body { padding: 20px; background-color: #fff; }</style>';
+    echo '</head><body>';
+}
 ?>
 <nav class="mb-2" aria-label="breadcrumb">
   <ol class="breadcrumb">
@@ -718,6 +817,8 @@ require '../../includes/header.php';
       enctype="multipart/form-data"
       id="stockInvoiceForm">
   <input type="hidden" name="action" value="save_stock_invoice">
+  <input type="hidden" name="invoice_id" value="<?= $editId ?>">
+  <input type="hidden" name="popup" value="<?= $isPopup ? 1 : 0 ?>">
 
 <div class="row g-3 align-items-start">
   <div class="col-xl-8">
@@ -1004,6 +1105,10 @@ require '../../includes/header.php';
   var PRODUCTS = <?= $jsProducts ?>;
   var BRANCHES = <?= $jsBranches ?>;
   var VENDORS  = <?= $jsVendors ?>;
+  var EDIT_INVOICE = <?= $jsEditInvoice ?>;
+  var EDIT_ITEMS   = <?= $jsEditItems ?>;
+  var EDIT_SERIALS = <?= $jsEditSerials ?>;
+  var EDIT_PAYMENTS= <?= $jsEditPayments ?>;
 
   var rowCounter = 0;
 
@@ -1594,12 +1699,129 @@ require '../../includes/header.php';
     }
     updateBranchRequirementState();
     updatePreview();
+    // ── PREFILL EDIT DATA ─────────────────────────────────────────────────────────
+    if (EDIT_INVOICE && EDIT_INVOICE.invoice_id) {
+        if (document.getElementById('vendor_id')) {
+            document.getElementById('vendor_id').value = EDIT_INVOICE.vendor_id;
+        }
+        if (document.getElementById('invoice_date')) {
+            document.getElementById('invoice_date').value = EDIT_INVOICE.invoice_date;
+        }
+        if (document.getElementById('ref_employee')) {
+            document.getElementById('ref_employee').value = EDIT_INVOICE.ref_employee || '';
+        }
+        if (document.getElementById('notes')) {
+            document.getElementById('notes').value = EDIT_INVOICE.notes || '';
+        }
+        
+        var modeRadio = document.querySelector('input[name="payment_mode"][value="' + EDIT_INVOICE.payment_mode + '"]');
+        if (modeRadio) {
+            modeRadio.checked = true;
+            modeRadio.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        
+        if (EDIT_INVOICE.payment_mode === 'partial') {
+            var dueDays = document.getElementById('due_days');
+            if (dueDays) dueDays.value = EDIT_INVOICE.due_days;
+        } else if (EDIT_INVOICE.payment_mode === 'emi') {
+            var emiCount = document.getElementById('emi_count');
+            if (emiCount) {
+                emiCount.value = EDIT_INVOICE.emi_count;
+                emiCount.dispatchEvent(new Event('input', {bubbles:true}));
+            }
+        }
+        
+        var manualDisc = document.getElementById('manualTotalDiscount');
+        if (manualDisc) {
+            manualDisc.value = EDIT_INVOICE.total_discount;
+            manualDisc.dispatchEvent(new Event('input', {bubbles:true}));
+        }
+
+        if (EDIT_ITEMS && EDIT_ITEMS.length > 0) {
+            EDIT_ITEMS.forEach(function(item) {
+                var btn = document.getElementById('addItemBtn');
+                if (btn) btn.click();
+                
+                var idx = rowCounter - 1;
+                var prodSelect = document.getElementById('product_' + idx);
+                if (prodSelect) {
+                    prodSelect.value = item.product_id;
+                    prodSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+                
+                var brandInput = document.querySelector('input[name="items['+idx+'][brand]"]');
+                if (brandInput) brandInput.value = item.brand || '';
+                
+                var qtyInput = document.getElementById('qty_' + idx);
+                if (qtyInput) {
+                    qtyInput.value = item.quantity;
+                    qtyInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+                
+                var priceInput = document.getElementById('unit_price_' + idx);
+                if (priceInput) {
+                    priceInput.value = item.unit_price;
+                    priceInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+                
+                var discInput = document.getElementById('disc_' + idx);
+                if (discInput) {
+                    discInput.value = item.discount_per_unit;
+                    discInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+
+                if (item.warranty_period) {
+                    var parts = item.warranty_period.split(' ');
+                    var wpInput = document.querySelector('input[name="items['+idx+'][warranty_period]"]');
+                    if (wpInput) wpInput.value = parts[0] || '';
+                    if (parts[1]) {
+                        var wuSelect = document.querySelector('select[name="items['+idx+'][warranty_unit]"]');
+                        if (wuSelect) wuSelect.value = parts[1];
+                    }
+                }
+
+                if (EDIT_SERIALS && EDIT_SERIALS[item.item_id]) {
+                    var serialInputs = document.querySelectorAll('input[name="items['+idx+'][serials][]"]');
+                    EDIT_SERIALS[item.item_id].forEach(function(sr, sIdx) {
+                        if (serialInputs[sIdx]) serialInputs[sIdx].value = sr;
+                    });
+                }
+            });
+        }
+
+        setTimeout(function() {
+            if (EDIT_INVOICE.payment_mode === 'emi' && EDIT_PAYMENTS && EDIT_PAYMENTS.length > 0) {
+                var emiRows = document.querySelectorAll('#emiScheduleContainer tr');
+                EDIT_PAYMENTS.forEach(function(pay, pIdx) {
+                    if (emiRows[pIdx]) {
+                        var dateInp = emiRows[pIdx].querySelector('input[type="date"]');
+                        if (dateInp) dateInp.value = pay.due_date;
+                        var amtInp = emiRows[pIdx].querySelector('input[type="number"]');
+                        if (amtInp) amtInp.value = pay.amount;
+                        var noteInp = emiRows[pIdx].querySelector('input[type="text"]');
+                        if (noteInp) noteInp.value = pay.payment_note || '';
+                    }
+                });
+            } else if (EDIT_INVOICE.payment_mode === 'partial' && EDIT_PAYMENTS && EDIT_PAYMENTS.length > 0) {
+                // Determine partial payment configuration based on schedule size
+                // To keep it simple, we don't fully recreate the generator state, but we populate the existing first row if there's only 1 row.
+                // Recreating full partial schedule UI state from DB dates/amounts is complex because of 'cash_payment' vs due balance.
+                // For now, we will leave the partial payments schedule area as is, but users can re-generate it.
+            }
+            updatePreview();
+        }, 150);
+    }
   })();
 
 })();
 </script>
 
 <?php
-require '../../includes/footer.php';
+if (!isset($isPopup) || !$isPopup) {
+    require '../../includes/footer.php';
+} else {
+    echo '<script src="' . $appBasePath . '/assets/js/theme.js"></script>';
+    echo '</body></html>';
+}
 ?>
 

@@ -81,6 +81,9 @@ require '../../includes/header.php';
             <?php foreach ($customers as $customer): ?>
               <tr>
                 <td>
+                  <a class="btn btn-link p-0 me-2" href="customer-details.php?id=<?= (int) $customer['customer_id'] ?>" data-bs-toggle="tooltip" data-bs-placement="top" title="View Details">
+                    <span class="fas fa-eye text-primary"></span>
+                  </a>
                   <?php if ($canManageCustomers): ?>
                     <a class="btn btn-link p-0" href="customer-registration.php?id=<?= (int) $customer['customer_id'] ?>" data-bs-toggle="tooltip" data-bs-placement="top" title="Edit" aria-label="Edit">
                       <span class="fas fa-edit text-500"></span>

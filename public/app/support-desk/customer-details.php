@@ -1,13 +1,36 @@
 <?php
+declare(strict_types=1);
+require_once '../../includes/auth.php';
+use App\Core\Database;
+
+$pdo = Database::getConnection();
+$customerId = isset($_GET['id']) ? (int) $_GET['id'] : 0;
+
+if ($customerId <= 0) {
+    header('Location: customers.php');
+    exit;
+}
+
+$stmt = $pdo->prepare('SELECT * FROM customers WHERE customer_id = :id LIMIT 1');
+$stmt->execute(['id' => $customerId]);
+$customer = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$customer) {
+    header('Location: customers.php');
+    exit;
+}
+
 require '../../includes/header.php';
 ?>
 <div class="card mb-3">
-            <div class="card-header d-flex align-items-center justify-content-between"><button class="btn btn-falcon-default btn-sm" type="button"><span class="fas fa-arrow-left"></span></button>
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <a class="btn btn-falcon-default btn-sm" href="customers.php"><span class="fas fa-arrow-left"></span></a>
               <div class="d-flex"><button class="btn btn-sm btn-falcon-default d-xl-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#contactDetailsOffcanvas" aria-controls="contactDetailsOffcanvas"><span class="fas fa-tasks" data-fa-transform="shrink-2"></span><span class="ms-1">To-do</span></button>
-                <div class="bg-300 mx-3 d-xl-none" style="width:1px; height:29px"></div><button class="btn btn-falcon-default btn-sm me-2" type="button"><span class="fas fa-edit"></span><span class="d-none d-xl-inline-block ms-1">Edit</span></button>
+                <div class="bg-300 mx-3 d-xl-none" style="width:1px; height:29px"></div>
+                <a class="btn btn-falcon-default btn-sm me-2" href="customer-registration.php?id=<?= $customerId ?>"><span class="fas fa-edit"></span><span class="d-none d-xl-inline-block ms-1">Edit</span></a>
                 <button class="btn btn-falcon-default btn-sm d-none d-sm-block" type="button"><span class="fas fa-sync-alt"></span><span class="d-none d-xl-inline-block ms-1">Convert to Agent</span></button>
                 <button class="btn btn-falcon-default btn-sm btn-sm d-none d-sm-block mx-2" type="button"><span class="fas fa-lock"></span><span class="d-none d-xl-inline-block ms-1">Send Activation Email</span></button>
-                <button class="btn btn-falcon-default btn-sm d-none d-sm-block me-2" type="button"><span class="fas fa-trash-alt"></span><span class="d-none d-xl-inline-block ms-1">Delete</span></button>
+                <button class="btn btn-falcon-default btn-sm d-none d-sm-block me-2" type="button"><span class="fas fa-trash-alt text-danger"></span><span class="d-none d-xl-inline-block ms-1 text-danger">Delete</span></button>
                 <button class="btn btn-falcon-default btn-sm d-none d-sm-block me-2" type="button"><span class="fas fa-key"></span><span class="d-none d-xl-inline-block ms-1">Change Password</span></button>
                 <div class="dropdown font-sans-serif"><button class="btn btn-falcon-default text-600 btn-sm dropdown-toggle dropdown-caret-none" type="button" id="preview-dropdown" data-bs-toggle="dropdown" data-boundary="viewport" aria-haspopup="true" aria-expanded="false"><span class="fas fa-ellipsis-v fs-11"></span></button>
                   <div class="dropdown-menu dropdown-menu-end border py-2" aria-labelledby="preview-dropdown"><a class="dropdown-item" href="#!">View</a><a class="dropdown-item" href="#!">Export</a><a class="dropdown-item d-sm-none" href="#!">Convert to Agent</a><a class="dropdown-item d-sm-none" href="#!">Send Activation Email</a><a class="dropdown-item d-sm-none" href="#!">Delete</a><a class="dropdown-item d-sm-none" href="#!">Change Password</a>
@@ -35,7 +58,7 @@ require '../../includes/header.php';
                       <div class="card-body row g-0 flex-column flex-sm-row flex-xl-column z-1 align-items-center">
                         <div class="col-auto text-center me-sm-x1 me-xl-0"><img class="ticket-preview-avatar" src="../../assets/img/team/5-thumb.png" alt="" /></div>
                         <div class="col-sm-8 col-md-6 col-lg-4 col-xl-12 ps-sm-1 ps-xl-0">
-                          <p class="fw-semi-bold mb-0 text-800 text-center text-sm-start text-xl-center mb-3 mt-3 mt-sm-0 mt-xl-3">Matt Rogers</p>
+                          <p class="fw-semi-bold mb-0 text-800 text-center text-sm-start text-xl-center mb-3 mt-3 mt-sm-0 mt-xl-3"><?= htmlspecialchars((string) $customer['username']) ?></p>
                           <div class="d-flex gap-2 justify-content-center"><button class="btn btn-primary btn-sm px-2 text-nowrap w-50"><span class="fas fa-plus me-1" data-fa-transform="shrink-3 down-1"></span><span class="fs-11">New Ticket</span></button>
                             <button class="btn btn-sm btn-falcon-default w-50"><span class="fas fa-phone-alt me-1" data-fa-transform="shrink-4"></span><span class="fs-11">Call</span></button>
                           </div>
@@ -45,18 +68,18 @@ require '../../includes/header.php';
                     <div class="border rounded-3 p-x1 mt-3 bg-white dark__bg-1000 row mx-0 g-0">
                       <div class="col-md-6 col-xl-12 pe-md-4 pe-xl-0">
                         <div class="mb-4">
-                          <h6 class="mb-1 false">Email</h6><a class="fs-10" href="mailto:mattrogers@gmail.com">mattrogers@gmail.com</a>
+                          <h6 class="mb-1 false">Email</h6><a class="fs-10" href="mailto:<?= htmlspecialchars((string) ($customer['email'] ?? '')) ?>"><?= htmlspecialchars((string) ($customer['email'] ?? 'N/A')) ?></a>
                         </div>
                         <div class="mb-4">
-                          <h6 class="false mb-1">Phone Number</h6><a class="fs-10" href="tel:+6(855)747677">+6(855) 747 677</a>
+                          <h6 class="false mb-1">Phone Number</h6><a class="fs-10" href="tel:<?= htmlspecialchars((string) $customer['phone_no']) ?>"><?= htmlspecialchars((string) $customer['phone_no']) ?></a>
                         </div>
                         <div class="mb-4">
                           <h6 class="false false">Location</h6>
-                          <p class="mb-0 text-700 fs-10">936 N. Fairground Rd.Farnham, QC J2N 5E9</p>
+                          <p class="mb-0 text-700 fs-10"><?= htmlspecialchars((string) $customer['area']) ?>, <?= htmlspecialchars((string) $customer['sub_area']) ?></p>
                         </div>
                         <div class="mb-4">
-                          <h6 class="false false">Language</h6>
-                          <p class="mb-0 text-700 fs-10">English</p>
+                          <h6 class="false false">Branch</h6>
+                          <p class="mb-0 text-700 fs-10"><?= htmlspecialchars((string) $customer['branch']) ?></p>
                         </div>
                         <div class="mb-4 mb-md-0 mb-xl-4">
                           <h6 class="false false">Account Verified by Twitter</h6>
@@ -65,20 +88,26 @@ require '../../includes/header.php';
                       </div>
                       <div class="col-md-6 col-xl-12 ps-md-4 ps-xl-0">
                         <div class="mb-4">
-                          <h6 class="false false">Subscription</h6>
-                          <p class="mb-0 text-700 fs-10">Active</p>
+                          <h6 class="false false">Registration Date</h6>
+                          <p class="mb-0 text-700 fs-10"><?= htmlspecialchars((string) $customer['registered_date']) ?></p>
                         </div>
                         <div class="mb-4">
-                          <h6 class="false false">OS</h6>
-                          <p class="mb-0 text-700 fs-10">macOS Monterey</p>
+                          <h6 class="false false">Package</h6>
+                          <p class="mb-0 text-700 fs-10"><?= htmlspecialchars((string) ($customer['package_id'] ?? 'None')) ?></p>
                         </div>
                         <div class="mb-4">
-                          <h6 class="false false">Browser</h6>
-                          <p class="mb-0 text-700 fs-10">Google Chrome 98.0.2563</p>
+                          <h6 class="false false">Package Activate / Expire</h6>
+                          <p class="mb-0 text-700 fs-10">
+                            <?= htmlspecialchars((string) ($customer['package_activate_date'] ?? '-')) ?> / 
+                            <?= htmlspecialchars((string) ($customer['package_expire_date']   ?? '-')) ?>
+                          </p>
                         </div>
                         <div class="mb-4">
-                          <h6 class="false false">IP</h6>
-                          <p class="mb-0 text-700 fs-10">52.119.132.297</p>
+                          <h6 class="false false">Deposit / Connection Charge</h6>
+                          <p class="mb-0 text-700 fs-10">
+                            <?= number_format((float) ($customer['deposit_money'] ?? 0), 2) ?> / 
+                            <?= number_format((float) ($customer['connection_charge'] ?? 0), 2) ?>
+                          </p>
                         </div>
                         <h6>Tag</h6><a class="badge border link-secondary me-1 text-decoration-none fs-11" href="#!">New</a><a class="badge border link-secondary me-1 text-decoration-none fs-11" href="#!">Payment</a><a class="badge border link-secondary text-decoration-none fs-11" href="#!">Subscribe</a>
                       </div>

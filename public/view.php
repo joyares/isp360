@@ -3,8 +3,12 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'Core' . DIRECTORY_SEPARATOR . 'ViewMapper.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'auth.php';
 
 use App\Core\ViewMapper;
+
+$appBasePath = ispts_resolve_app_base_path(__DIR__);
+ispts_require_authentication($appBasePath);
 
 $mapper = new ViewMapper(__DIR__);
 

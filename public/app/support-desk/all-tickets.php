@@ -310,7 +310,7 @@ $sql =
             br.branch_name,
             (
                 SELECT mc.logo_icon
-                FROM mycompany mc
+                FROM companies mc
                 WHERE mc.status = 1
                   AND mc.company = co.company_name
                   AND mc.logo_icon IS NOT NULL
@@ -320,7 +320,7 @@ $sql =
             ) AS company_logo_icon,
             (
                 SELECT mc.logo_main
-                FROM mycompany mc
+                FROM companies mc
                 WHERE mc.status = 1
                   AND mc.company = co.company_name
                   AND mc.logo_main IS NOT NULL
@@ -330,7 +330,7 @@ $sql =
             ) AS company_logo_main,
             (
                 SELECT mc.phone
-                FROM mycompany mc
+                FROM companies mc
                 WHERE mc.status = 1
                   AND mc.company = co.company_name
                   AND mc.phone IS NOT NULL
@@ -340,7 +340,7 @@ $sql =
             ) AS company_phone,
             (
                 SELECT mc.email
-                FROM mycompany mc
+                FROM companies mc
                 WHERE mc.status = 1
                   AND mc.company = co.company_name
                   AND mc.email IS NOT NULL
@@ -350,7 +350,7 @@ $sql =
             ) AS company_email,
             (
                 SELECT mc.address
-                FROM mycompany mc
+                FROM companies mc
                 WHERE mc.status = 1
                   AND mc.company = co.company_name
                   AND mc.address IS NOT NULL

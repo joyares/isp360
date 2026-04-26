@@ -103,8 +103,12 @@ require '../../includes/header.php';
                       <span class="fas fa-file-image"></span>
                     </button>
                   <?php endif; ?>
-                  <a class="btn btn-link p-0 text-primary" href="<?= $appBasePath ?>/app/inventory/add-stock.php?print_invoice=<?= $invoiceId ?>&auto_print=1" target="_blank" data-bs-toggle="tooltip" data-bs-placement="top" title="Print Invoice (A4) - ID: <?= $invoiceId ?>">
+                  <a class="btn btn-link p-0 text-primary me-2" href="<?= $appBasePath ?>/app/inventory/add-stock.php?print_invoice=<?= $invoiceId ?>&auto_print=1" target="_blank" data-bs-toggle="tooltip" data-bs-placement="top" title="Print Invoice (A4) - ID: <?= $invoiceId ?>">
                     <span class="fas fa-print"></span>
+                  </a>
+                  <a class="btn btn-link p-0 text-success" href="<?= $appBasePath ?>/app/inventory/edit-stock.php?edit_id=<?= $invoiceId ?>" 
+                          data-bs-toggle="tooltip" data-bs-placement="top" title="Edit Invoice">
+                    <span class="fas fa-edit"></span>
                   </a>
                 </td>
                 <td><?= $invoiceId ?></td>
@@ -175,6 +179,7 @@ document.addEventListener('DOMContentLoaded', function () {
   imageModalElement.addEventListener('hidden.bs.modal', function () {
     imagePreview.setAttribute('src', '');
   });
+
 });
 </script>
 
