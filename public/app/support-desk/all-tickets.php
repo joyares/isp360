@@ -298,6 +298,7 @@ if ($filterFromDate !== '' && $filterToDate !== '') {
 
 $sql =
     'SELECT t.ticket_id,
+            t.customer_id,
             t.ticket_no,
             t.ticket_for,
             t.issue_details,
@@ -714,6 +715,11 @@ require '../../includes/header.php';
                       <a class="btn btn-link p-0" href="<?= $appBasePath ?>/app/support-desk/all-tickets.php<?= htmlspecialchars($ticketDetailsQuery) ?>" data-bs-toggle="tooltip" data-bs-placement="top" title="Edit" onclick="event.stopPropagation();">
                         <span class="fas fa-edit text-500"></span>
                       </a>
+                      <?php if ((int) ($ticket['customer_id'] ?? 0) > 0): ?>
+                        <a class="btn btn-link p-0 ms-2 text-primary" href="<?= $appBasePath ?>/app/support-desk/customer-details.php?id=<?= (int) $ticket['customer_id'] ?>" data-bs-toggle="tooltip" data-bs-placement="top" title="View Customer" onclick="event.stopPropagation();">
+                          <span class="fas fa-eye fs-9"></span>
+                        </a>
+                      <?php endif; ?>
                     </td>
                     <td class="align-middle ps-2">
                       <div class="d-flex flex-column gap-1">

@@ -111,19 +111,40 @@ $query = "
         p.product_name, 
         c.category_name, 
         sc.sub_category_name,
+        inv.branch_id,
+        b.branch_name,
+        COALESCE(NULLIF(comp.company, ''), comp.firstname, comp.username, '-') AS company_name,
         COUNT(sn.serial_id) as total_qty
     FROM inventory_products p
     LEFT JOIN inventory_categories c ON c.category_id = p.category_id
     LEFT JOIN inventory_sub_categories sc ON sc.sub_category_id = p.sub_category_id
     LEFT JOIN inventory_serial_numbers sn ON sn.product_id = p.product_id AND sn.status = 1
+    LEFT JOIN inventory_stock_invoices inv ON inv.invoice_id = sn.invoice_id
+    LEFT JOIN branches b ON b.branch_id = inv.branch_id
+    LEFT JOIN companies comp ON comp.id = b.partner_id
     WHERE $whereClause
-    GROUP BY p.product_id
-    ORDER BY p.product_name ASC
+    GROUP BY p.product_id, inv.branch_id
+    ORDER BY p.product_name ASC, b.branch_name ASC
 ";
 
 $stmt = $pdo->prepare($query);
 $stmt->execute($params);
 $stockItems = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+// Grouping stock items by branch
+$groupedStock = [];
+foreach ($stockItems as $item) {
+    $bId = (int) ($item['branch_id'] ?? 0);
+    $bName = $item['branch_name'] ?: 'General / Unassigned';
+    if (!isset($groupedStock[$bId])) {
+        $groupedStock[$bId] = [
+            'name' => $bName,
+            'items' => []
+        ];
+    }
+    $groupedStock[$bId]['items'][] = $item;
+}
+ksort($groupedStock); // Keep it somewhat ordered
 
 $categories = $pdo->query("SELECT category_id, category_name FROM inventory_categories ORDER BY category_name ASC")->fetchAll(\PDO::FETCH_ASSOC);
 $subCategories = $pdo->query("SELECT sub_category_id, sub_category_name FROM inventory_sub_categories ORDER BY sub_category_name ASC")->fetchAll(\PDO::FETCH_ASSOC);
@@ -190,47 +211,70 @@ require '../../includes/header.php';
 </div>
 
 <div class="card">
-    <div class="card-header border-bottom border-200">
-        <h5 class="mb-0">Product Stock List</h5>
+    <div class="card-header p-0">
+        <ul class="nav nav-tabs border-0" id="branchTabs" role="tablist">
+            <?php if (empty($groupedStock)): ?>
+                <li class="nav-item"><a class="nav-link active px-3 py-2 fs-10" href="#">No Stock</a></li>
+            <?php else: ?>
+                <?php $isFirst = true; foreach ($groupedStock as $bId => $data): ?>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link <?= $isFirst ? 'active' : '' ?> px-3 py-2 fs-10" id="branch-tab-<?= $bId ?>" data-bs-toggle="tab" data-bs-target="#branch-pane-<?= $bId ?>" type="button" role="tab">
+                            <span class="fas fa-store me-1"></span><?= htmlspecialchars($data['name']) ?> 
+                            <span class="badge rounded-pill badge-subtle-primary ms-1"><?= count($data['items']) ?></span>
+                        </button>
+                    </li>
+                <?php $isFirst = false; endforeach; ?>
+            <?php endif; ?>
+        </ul>
     </div>
     <div class="card-body p-0">
-        <div class="table-responsive scrollbar">
-            <table class="table table-sm table-striped fs-10 mb-0">
-                <thead class="bg-body-tertiary">
-                    <tr>
-                        <th class="text-800">Product Name</th>
-                        <th class="text-800">Category</th>
-                        <th class="text-800">Sub Category</th>
-                        <th class="text-800 text-end">Available Qty</th>
-                        <th class="text-800 text-center">Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (empty($stockItems)): ?>
-                        <tr><td colspan="5" class="text-center py-4">No stock items found.</td></tr>
-                    <?php else: ?>
-                        <?php foreach($stockItems as $item): ?>
-                            <tr>
-                                <td class="fw-bold"><?= htmlspecialchars($item['product_name']) ?></td>
-                                <td><?= htmlspecialchars($item['category_name'] ?: '-') ?></td>
-                                <td><?= htmlspecialchars($item['sub_category_name'] ?: '-') ?></td>
-                                <td class="text-end fw-bold">
-                                    <span class="badge rounded-pill <?= (int)$item['total_qty'] > 0 ? 'badge-subtle-success' : 'badge-subtle-danger' ?>">
-                                        <?= (int)$item['total_qty'] ?>
-                                    </span>
-                                </td>
-                                <td class="text-center">
-                                    <button class="btn btn-link p-0" type="button" 
-                                            onclick="showStockDetails(<?= (int)$item['product_id'] ?>, '<?= addslashes($item['product_name']) ?>')"
-                                            data-bs-toggle="tooltip" title="View Serials">
-                                        <span class="fas fa-eye text-primary"></span>
-                                    </button>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </tbody>
-            </table>
+        <div class="tab-content" id="branchTabsContent">
+            <?php if (empty($groupedStock)): ?>
+                <div class="text-center py-5">
+                    <p class="text-600 mb-0">No stock items found matching your criteria.</p>
+                </div>
+            <?php else: ?>
+                <?php $isFirst = true; foreach ($groupedStock as $bId => $data): ?>
+                    <div class="tab-pane fade <?= $isFirst ? 'show active' : '' ?>" id="branch-pane-<?= $bId ?>" role="tabpanel" aria-labelledby="branch-tab-<?= $bId ?>">
+                        <div class="table-responsive scrollbar">
+                            <table class="table table-sm table-striped fs-10 mb-0">
+                                <thead class="bg-body-tertiary">
+                                    <tr>
+                                        <th class="text-800 ps-3">Product Name</th>
+                                        <th class="text-800">Category</th>
+                                        <th class="text-800">Sub Category</th>
+                                        <th class="text-800">Company</th>
+                                        <th class="text-800 text-end">Available Qty</th>
+                                        <th class="text-800 text-center">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($data['items'] as $item): ?>
+                                        <tr>
+                                            <td class="fw-bold ps-3"><?= htmlspecialchars($item['product_name']) ?></td>
+                                            <td><?= htmlspecialchars($item['category_name'] ?: '-') ?></td>
+                                            <td><?= htmlspecialchars($item['sub_category_name'] ?: '-') ?></td>
+                                            <td><?= htmlspecialchars($item['company_name'] ?: '-') ?></td>
+                                            <td class="text-end fw-bold">
+                                                <span class="badge rounded-pill <?= (int) $item['total_qty'] > 0 ? 'badge-subtle-success' : 'badge-subtle-danger' ?>">
+                                                    <?= (int) $item['total_qty'] ?>
+                                                </span>
+                                            </td>
+                                            <td class="text-center">
+                                                <button class="btn btn-link p-0" type="button" 
+                                                        onclick="showStockDetails(<?= (int) $item['product_id'] ?>, '<?= addslashes($item['product_name']) ?>', <?= (int) $item['branch_id'] ?>)"
+                                                        data-bs-toggle="tooltip" title="View Serials">
+                                                    <span class="fas fa-eye text-primary"></span>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                <?php $isFirst = false; endforeach; ?>
+            <?php endif; ?>
         </div>
     </div>
 </div>
@@ -267,12 +311,11 @@ require '../../includes/header.php';
 </div>
 
 <script>
-function showStockDetails(productId, productName) {
+function showStockDetails(productId, productName, branchId) {
     const modal = new bootstrap.Modal(document.getElementById('serialDetailsModal'));
     const body = document.getElementById('detailsBody');
     const loader = document.getElementById('detailsLoader');
     const title = document.getElementById('modalTitle');
-    const branchId = '<?= $branchFilter ?>';
 
     title.textContent = 'Stock Details: ' + productName;
     body.innerHTML = '';

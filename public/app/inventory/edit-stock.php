@@ -276,7 +276,7 @@ if ($branchesTableExists) {
     $branchCompanySelect = ", '' AS company_name";
     if ($companiesTableExists) {
         $branchJoin = ' LEFT JOIN companies p ON p.id = b.partner_id';
-        $branchCompanySelect = ", COALESCE(NULLIF(p.company, ''), p.firstname, '') AS company_name";
+        $branchCompanySelect = ", COALESCE(NULLIF(p.company, ''), p.firstname, p.username, '') AS company_name";
     }
     $branches = $pdo->query('SELECT b.branch_id, b.branch_name' . $branchCompanySelect . ' FROM branches b' . $branchJoin . ' ORDER BY b.branch_name ASC')->fetchAll(\PDO::FETCH_ASSOC);
 }
@@ -340,11 +340,12 @@ require '../../includes/header.php';
       <div class="card-header border-bottom border-200 d-flex align-items-center justify-content-between">
         <h6 class="mb-0">Product Items</h6>
         <div class="d-flex align-items-center gap-2">
-            <select class="form-select form-select-sm" id="branch_id" name="branch_id" style="min-width: 200px;" required>
-                <option value="" disabled>Select Branch</option>
+            <select class="form-select form-select-sm" id="branch_id" name="branch_id" style="min-width: 280px;" required>
+                <option value="" disabled <?= (int)$editInvoice['branch_id'] === 0 ? 'selected' : '' ?>>Select Branch</option>
                 <?php foreach ($branches as $b): ?>
+                    <?php $branchCompanyName = trim((string) ($b['company_name'] ?? '')); ?>
                     <option value="<?= (int)$b['branch_id'] ?>" <?= (int)$editInvoice['branch_id'] === (int)$b['branch_id'] ? 'selected' : '' ?>>
-                        <?= htmlspecialchars((string)$b['branch_name']) ?>
+                        <?= htmlspecialchars((string) $b['branch_name'], ENT_QUOTES, 'UTF-8') ?><?= $branchCompanyName !== '' ? ' | ' . htmlspecialchars($branchCompanyName, ENT_QUOTES, 'UTF-8') : '' ?>
                     </option>
                 <?php endforeach; ?>
             </select>
@@ -479,7 +480,7 @@ require '../../includes/header.php';
         return `
         <div class="item-row border-bottom p-3" data-idx="${idx}">
             <div class="row g-2 align-items-end">
-                <div class="col-md-5">
+                <div class="col-md-4">
                     <label class="form-label fs-11">Product</label>
                     <select class="form-select form-select-sm js-product-search" name="items[${idx}][product_id]" id="product_${idx}" onchange="onProductChange(${idx})" required>
                         <option value="" disabled selected>Search Product...</option>
@@ -488,21 +489,36 @@ require '../../includes/header.php';
                 </div>
                 <div class="col-md-2">
                     <label class="form-label fs-11">Brand</label>
-                    <input class="form-control form-control-sm" name="items[${idx}][brand]">
+                    <input class="form-control form-control-sm" name="items[${idx}][brand]" id="brand_${idx}">
                 </div>
                 <div class="col-md-1">
                     <label class="form-label fs-11">Qty</label>
                     <input class="form-control form-control-sm text-end" type="number" name="items[${idx}][quantity]" id="qty_${idx}" value="1" min="1" oninput="calcLine(${idx})">
                 </div>
-                <div class="col-md-2">
+                <div class="col-md-1">
                     <label class="form-label fs-11">Unit Price</label>
                     <input class="form-control form-control-sm text-end" type="number" step="0.01" name="items[${idx}][unit_price]" id="price_${idx}" value="0.00" oninput="calcLine(${idx})">
                 </div>
-                <input type="hidden" name="items[${idx}][discount_per_unit]" value="0">
-                <div class="col-md-2 d-flex gap-1 align-items-center">
-                    <div class="flex-grow-1">
-                        <label class="form-label fs-11">Line Total</label>
-                        <input class="form-control form-control-sm text-end bg-200" id="total_${idx}" value="0.00" readonly>
+                <div class="col-md-1">
+                    <label class="form-label fs-11">Discount</label>
+                    <input class="form-control form-control-sm text-end text-danger" type="number" step="0.01" name="items[${idx}][discount_per_unit]" id="disc_${idx}" value="0.00" oninput="calcLine(${idx})">
+                </div>
+                <div class="col-md-1">
+                    <label class="form-label fs-11">Warranty</label>
+                    <input class="form-control form-control-sm" type="text" name="items[${idx}][warranty_period]" id="warranty_p_${idx}" placeholder="e.g. 1">
+                </div>
+                <div class="col-md-1">
+                    <label class="form-label fs-11">Unit</label>
+                    <select class="form-select form-select-sm" name="items[${idx}][warranty_unit]" id="warranty_u_${idx}">
+                        <option value="Days">Days</option>
+                        <option value="Months">Months</option>
+                        <option value="Years" selected>Years</option>
+                    </select>
+                </div>
+                <div class="col-md-1 d-flex gap-1 align-items-center">
+                    <div class="flex-grow-1 text-end">
+                        <label class="form-label fs-11">Total</label>
+                        <input class="form-control form-control-sm text-end bg-200 fw-bold" id="total_${idx}" value="0.00" readonly>
                     </div>
                     <button type="button" class="btn btn-link text-danger p-0 mt-3" onclick="removeRow(this)"><span class="fas fa-times-circle"></span></button>
                 </div>
@@ -519,32 +535,79 @@ require '../../includes/header.php';
     window.calcLine = function(idx) {
         let q = parseFloat(document.getElementById(`qty_${idx}`).value) || 0;
         let p = parseFloat(document.getElementById(`price_${idx}`).value) || 0;
-        document.getElementById(`total_${idx}`).value = (q * p).toFixed(2);
+        let d = parseFloat(document.getElementById(`disc_${idx}`).value) || 0;
+        let total = (q * p) - (q * d);
+        document.getElementById(`total_${idx}`).value = Math.max(0, total).toFixed(2);
         calcTotals();
         renderSerials(idx);
     };
 
     function calcTotals() {
         let sub = 0;
+        let totalLineDisc = 0;
         document.querySelectorAll('.item-row').forEach(row => {
             let idx = row.dataset.idx;
-            sub += (parseFloat(document.getElementById(`qty_${idx}`).value) || 0) * (parseFloat(document.getElementById(`price_${idx}`).value) || 0);
+            let q = parseFloat(document.getElementById(`qty_${idx}`).value) || 0;
+            let p = parseFloat(document.getElementById(`price_${idx}`).value) || 0;
+            let d = parseFloat(document.getElementById(`disc_${idx}`).value) || 0;
+            sub += q * p;
+            totalLineDisc += q * d;
         });
         document.getElementById('summarySubtotal').textContent = sub.toFixed(2);
-        let disc = parseFloat(document.getElementById('manualTotalDiscount').value) || 0;
-        document.getElementById('summaryGrandTotal').textContent = (sub - disc).toFixed(2);
-        document.getElementById('previewGrand').textContent = (sub - disc).toFixed(2);
+        let manualDisc = parseFloat(document.getElementById('manualTotalDiscount').value) || 0;
+        let finalGrand = sub - totalLineDisc - manualDisc;
+        document.getElementById('summaryGrandTotal').textContent = Math.max(0, finalGrand).toFixed(2);
+        document.getElementById('previewGrand').textContent = Math.max(0, finalGrand).toFixed(2);
+    }
+
+    function isMeterProduct(idx) {
+        let sel = document.getElementById(`product_${idx}`);
+        if (!sel || sel.selectedIndex < 0) return false;
+        let opt = sel.options[sel.selectedIndex];
+        if (!opt) return false;
+        let unit = String(opt.dataset.unit || '').toLowerCase().trim();
+        return unit === 'meter';
     }
 
     function renderSerials(idx) {
         let q = parseInt(document.getElementById(`qty_${idx}`).value) || 0;
         let cont = document.getElementById(`serials_${idx}`);
-        let html = '';
-        for(let i=0; i<q; i++) {
-            html += `<input class="form-control form-control-sm d-inline-block me-1 mb-1" style="width:120px" name="items[${idx}][serials][]" placeholder="S/N ${i+1}">`;
+        
+        if (isMeterProduct(idx)) {
+            cont.innerHTML = `
+                <div class="row g-2 mt-1">
+                    <div class="col-md-6">
+                        <label class="form-label fs-11">Start Serial</label>
+                        <input class="form-control form-control-sm" name="items[${idx}][serials][]" id="serial_start_${idx}" placeholder="Start range" oninput="updateMeterEnd(${idx})">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fs-11">End Serial (Auto)</label>
+                        <input class="form-control form-control-sm bg-200" id="serial_end_${idx}" readonly placeholder="End range">
+                        <input type="hidden" name="items[${idx}][serials][]" id="serial_end_val_${idx}">
+                    </div>
+                </div>
+            `;
+            updateMeterEnd(idx);
+            return;
         }
+
+        let html = '<div class="d-flex flex-wrap gap-1 mt-1">';
+        for(let i=0; i<q; i++) {
+            html += `<input class="form-control form-control-sm" style="width:120px" name="items[${idx}][serials][]" id="serial_${idx}_${i}" placeholder="S/N ${i+1}">`;
+        }
+        html += '</div>';
         cont.innerHTML = html || '<small class="text-500">No serials needed</small>';
     }
+
+    window.updateMeterEnd = function(idx) {
+        let start = parseInt(document.getElementById(`serial_start_${idx}`)?.value) || 0;
+        let q = parseInt(document.getElementById(`qty_${idx}`)?.value) || 0;
+        if (start > 0) {
+            let end = start + q;
+            document.getElementById(`serial_end_${idx}`).value = end;
+            document.getElementById(`serial_end_val_${idx}`).value = end;
+        }
+    };
 
     window.removeRow = function(btn) {
         btn.closest('.item-row').remove();
@@ -573,8 +636,54 @@ require '../../includes/header.php';
         r.addEventListener('change', function() {
             document.getElementById('partialSection').style.display = this.value === 'partial' ? 'block' : 'none';
             document.getElementById('emiSection').style.display = this.value === 'emi' ? 'block' : 'none';
+            if (this.value === 'partial') generatePartialSchedule();
+            if (this.value === 'emi') generateEmiSchedule();
         });
     });
+
+    function generateEmiSchedule() {
+        const count = parseInt(document.getElementById('emi_count').value) || 1;
+        const container = document.getElementById('emiScheduleContainer');
+        const grandTotal = parseFloat(document.getElementById('summaryGrandTotal').textContent) || 0;
+        const perInst = (grandTotal / count).toFixed(2);
+        
+        let html = '<table class="table table-sm fs-11"><thead><tr><th>Due Date</th><th>Amount</th><th>Note</th></tr></thead><tbody>';
+        let d = new Date();
+        for (let i = 1; i <= count; i++) {
+            d.setMonth(d.getMonth() + 1);
+            let dateStr = d.toISOString().split('T')[0];
+            html += `<tr>
+                <td><input type="date" class="form-control form-control-sm" name="emi_schedule[${i}][due_date]" value="${dateStr}"></td>
+                <td><input type="number" step="0.01" class="form-control form-control-sm" name="emi_schedule[${i}][amount]" value="${perInst}"></td>
+                <td><input type="text" class="form-control form-control-sm" name="emi_schedule[${i}][note]" value="EMI #${i}"></td>
+            </tr>`;
+        }
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    }
+
+    function generatePartialSchedule() {
+        const container = document.getElementById('partialScheduleContainer');
+        const grandTotal = parseFloat(document.getElementById('summaryGrandTotal').textContent) || 0;
+        let d = new Date();
+        d.setMonth(d.getMonth() + 1);
+        let dateStr = d.toISOString().split('T')[0];
+        
+        container.innerHTML = `
+            <div class="row g-2">
+                <div class="col-md-6">
+                    <label class="form-label fs-11">Due Date</label>
+                    <input type="date" class="form-control form-control-sm" name="partial_schedule[0][due_date]" value="${dateStr}">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fs-11">Remaining Balance</label>
+                    <input type="number" step="0.01" class="form-control form-control-sm bg-200" name="partial_schedule[0][amount]" value="${grandTotal.toFixed(2)}" readonly>
+                </div>
+            </div>
+        `;
+    }
+
+    document.getElementById('generateEmiBtn').addEventListener('click', generateEmiSchedule);
 
     // Prefill logic
     document.addEventListener('DOMContentLoaded', function() {
@@ -582,20 +691,42 @@ require '../../includes/header.php';
             EDIT_ITEMS.forEach(item => {
                 document.getElementById('addItemBtn').click();
                 let idx = rowCounter - 1;
+                
                 let sel = document.getElementById(`product_${idx}`);
                 if (sel._choicesInstance) {
                     sel._choicesInstance.setChoiceByValue(String(item.product_id));
                 } else {
                     sel.value = item.product_id;
                 }
-                document.querySelector(`[name="items[${idx}][brand]"]`).value = item.brand || '';
+                
+                document.getElementById(`brand_${idx}`).value = item.brand || '';
                 document.getElementById(`qty_${idx}`).value = item.quantity;
                 document.getElementById(`price_${idx}`).value = item.unit_price;
+                document.getElementById(`disc_${idx}`).value = item.discount_per_unit || 0;
+                
+                if (item.warranty_period) {
+                    let parts = item.warranty_period.split(' ');
+                    document.getElementById(`warranty_p_${idx}`).value = parts[0] || '';
+                    if (parts[1]) {
+                        document.getElementById(`warranty_u_${idx}`).value = parts[1];
+                    }
+                }
+                
                 calcLine(idx);
                 
-                let serialInputs = document.querySelectorAll(`[name="items[${idx}][serials][]"]`);
-                let srs = EDIT_SERIALS[item.item_id] || [];
-                srs.forEach((s, si) => { if(serialInputs[si]) serialInputs[si].value = s; });
+                if (isMeterProduct(idx)) {
+                    let srs = EDIT_SERIALS[item.item_id] || [];
+                    if (srs[0]) {
+                        document.getElementById(`serial_start_${idx}`).value = srs[0];
+                        updateMeterEnd(idx);
+                    }
+                } else {
+                    let serialInputs = document.querySelectorAll(`[name="items[${idx}][serials][]"]`);
+                    let srs = EDIT_SERIALS[item.item_id] || [];
+                    srs.forEach((s, si) => {
+                        if(serialInputs[si]) serialInputs[si].value = s;
+                    });
+                }
             });
         }
         
@@ -604,14 +735,21 @@ require '../../includes/header.php';
         document.querySelector(`input[name="payment_mode"][value="${mode}"]`).dispatchEvent(new Event('change'));
         
         if (mode === 'emi') {
-            document.getElementById('generateEmiBtn').click();
-            let rows = document.querySelectorAll('#emiScheduleContainer tr');
+            generateEmiSchedule();
+            let rows = document.querySelectorAll('#emiScheduleContainer tbody tr');
             EDIT_PAYMENTS.forEach((p, pi) => {
-                if(rows[pi+1]) {
-                    rows[pi+1].querySelector('input[type="date"]').value = p.due_date;
-                    rows[pi+1].querySelector('input[type="number"]').value = p.amount;
+                if(rows[pi]) {
+                    rows[pi].querySelector('input[type="date"]').value = p.due_date;
+                    rows[pi].querySelector('input[type="number"]').value = p.amount;
+                    rows[pi].querySelector('input[type="text"]').value = p.payment_note || '';
                 }
             });
+        } else if (mode === 'partial') {
+            generatePartialSchedule();
+            if (EDIT_PAYMENTS.length > 0) {
+                document.querySelector('[name="partial_schedule[0][due_date]"]').value = EDIT_PAYMENTS[0].due_date;
+                document.querySelector('[name="partial_schedule[0][amount]"]').value = EDIT_PAYMENTS[0].amount;
+            }
         }
         calcTotals();
         updatePreview();
