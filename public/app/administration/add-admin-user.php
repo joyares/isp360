@@ -1,6 +1,16 @@
-<?php
 require '../../includes/header.php';
+
+require_once __DIR__ . '/../../../app/Core/Database.php';
+use App\Core\Database;
+$pdo = Database::getConnection();
+
+$branchesStmt = $pdo->query('SELECT branch_id, branch_name FROM branches WHERE status = 1 ORDER BY branch_name ASC');
+$branches = $branchesStmt->fetchAll(\PDO::FETCH_ASSOC);
+
+$rolesStmt = $pdo->query('SELECT role_id, role_name FROM roles WHERE status = 1 ORDER BY role_name ASC');
+$roles = $rolesStmt->fetchAll(\PDO::FETCH_ASSOC);
 ?>
+
 <nav class="mb-2" aria-label="breadcrumb">
   <ol class="breadcrumb">
     <li class="breadcrumb-item"><a href="<?= $appBasePath ?>/index.php">Home</a></li>
@@ -55,12 +65,12 @@ require '../../includes/header.php';
         <label class="form-label" for="userRole">Role</label>
         <select class="form-select" id="userRole" name="role_id">
           <option value="" disabled selected>Select Role</option>
-          <option value="1">Administrator</option>
-          <option value="2">Support Agent</option>
-          <option value="3">Finance Officer</option>
-          <option value="4">Sales Executive</option>
+          <?php foreach ($roles as $role): ?>
+            <option value="<?= (int) $role['role_id'] ?>"><?= htmlspecialchars((string) $role['role_name']) ?></option>
+          <?php endforeach; ?>
         </select>
       </div>
+
 
       <div class="col-md-4">
         <label class="form-label" for="username">Username</label>
@@ -76,11 +86,12 @@ require '../../includes/header.php';
         <label class="form-label" for="userBranch">Branch</label>
         <select class="form-select" id="userBranch" name="branch_id">
           <option value="" disabled selected>Select Branch</option>
-          <option value="1">Head Office</option>
-          <option value="2">Branch - Dhaka</option>
-          <option value="3">Branch - Chittagong</option>
+          <?php foreach ($branches as $branch): ?>
+            <option value="<?= (int) $branch['branch_id'] ?>"><?= htmlspecialchars((string) $branch['branch_name']) ?></option>
+          <?php endforeach; ?>
         </select>
       </div>
+
 
       <div class="col-md-4">
         <label class="form-label" for="firstName">First Name</label>

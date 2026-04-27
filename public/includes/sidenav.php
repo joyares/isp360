@@ -119,7 +119,20 @@
                     <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/administration/my-company.php"><div class="d-flex align-items-center"><span class="nav-link-text ps-1">My Company</span></div></a></li>
                   </ul>
                 </li>
-                <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/pages/user/settings.html"><div class="d-flex align-items-center"><span class="nav-link-icon"><span class="fas fa-cog"></span></span><span class="nav-link-text ps-1">Settings</span></div></a></li>
+                <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/pages/user/profile.php"><div class="d-flex align-items-center"><span class="nav-link-icon"><span class="fas fa-user-circle"></span></span><span class="nav-link-text ps-1">My Profile</span></div></a></li>
+                  <?php if (function_exists('has_permission') ? has_permission('settings_manage') : true): ?>
+                  <li class="nav-item">
+                    <a class="nav-link dropdown-indicator collapsed" href="#settingsMenu" role="button" data-bs-toggle="collapse" aria-expanded="false" aria-controls="settingsMenu">
+                      <div class="d-flex align-items-center"><span class="nav-link-icon"><span class="fas fa-cogs"></span></span><span class="nav-link-text ps-1">Settings</span></div>
+                    </a>
+                    <ul class="nav collapse" id="settingsMenu">
+                      <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/settings/general.php">General</a></li>
+                      <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/settings/notifications.php">Notifications</a></li>
+                      <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/settings/sms.php">SMS</a></li>
+                      <li class="nav-item"><a class="nav-link" href="<?= $navBasePath ?>/app/settings/email.php">Email</a></li>
+                    </ul>
+                  </li>
+                  <?php endif; ?>
               </ul>
             </div>
           </div>

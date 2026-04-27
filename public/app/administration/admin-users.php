@@ -17,7 +17,7 @@ $pdo->exec(
         password_hash VARCHAR(255) NOT NULL,
         email VARCHAR(190) NOT NULL,
         mobile VARCHAR(30) NOT NULL,
-        branch_name VARCHAR(120) NULL,
+        branch_id BIGINT UNSIGNED NULL,
         partner_registration TINYINT(1) NOT NULL DEFAULT 0,
         status TINYINT(1) NOT NULL DEFAULT 1,
         last_login_at DATETIME NULL,
@@ -27,13 +27,26 @@ $pdo->exec(
         UNIQUE KEY uk_admin_users_username (username),
         UNIQUE KEY uk_admin_users_email (email),
         KEY idx_admin_users_role_id (role_id),
+        KEY idx_admin_users_branch_id (branch_id),
         CONSTRAINT fk_admin_users_role_id
             FOREIGN KEY (role_id)
             REFERENCES roles (role_id)
             ON UPDATE CASCADE
-            ON DELETE RESTRICT
+            ON DELETE RESTRICT,
+        CONSTRAINT fk_admin_users_branch_id
+            FOREIGN KEY (branch_id)
+            REFERENCES branches (branch_id)
+            ON UPDATE CASCADE
+            ON DELETE SET NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
 );
+
+// Ensure branch_id column exists if table was already created
+$checkColumn = $pdo->query("SHOW COLUMNS FROM admin_users LIKE 'branch_id'")->fetch();
+if (!$checkColumn) {
+    $pdo->exec("ALTER TABLE admin_users ADD COLUMN branch_id BIGINT UNSIGNED NULL AFTER mobile");
+}
+
 
 $alert = null;
 $currentPath = $_SERVER['PHP_SELF'] ?? '/app/administration/admin-users.php';
@@ -49,7 +62,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $password = (string) ($_POST['password'] ?? '');
         $email = trim((string) ($_POST['email'] ?? ''));
         $mobile = trim((string) ($_POST['mobile'] ?? ''));
-        $branchName = trim((string) ($_POST['branch_name'] ?? ''));
+        $branchId = isset($_POST['branch_id']) ? (int) $_POST['branch_id'] : 0;
+
         $status = isset($_POST['status']) ? 1 : 0;
         $partnerRegistration = isset($_POST['partner_registration']) ? 1 : 0;
 
@@ -58,9 +72,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $insertStmt = $pdo->prepare(
                 'INSERT INTO admin_users (
-                    role_id, full_name, username, password_hash, email, mobile, branch_name, partner_registration, status
+                    role_id, full_name, username, password_hash, email, mobile, branch_id, partner_registration, status
                  ) VALUES (
-                    :role_id, :full_name, :username, :password_hash, :email, :mobile, :branch_name, :partner_registration, :status
+                    :role_id, :full_name, :username, :password_hash, :email, :mobile, :branch_id, :partner_registration, :status
                  )'
             );
             $insertStmt->bindValue(':role_id', $roleId, \PDO::PARAM_INT);
@@ -69,9 +83,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $insertStmt->bindValue(':password_hash', password_hash($password, PASSWORD_DEFAULT));
             $insertStmt->bindValue(':email', $email);
             $insertStmt->bindValue(':mobile', $mobile);
-            $insertStmt->bindValue(':branch_name', $branchName !== '' ? $branchName : null);
+            $insertStmt->bindValue(':branch_id', $branchId > 0 ? $branchId : null, \PDO::PARAM_INT);
             $insertStmt->bindValue(':partner_registration', $partnerRegistration, \PDO::PARAM_INT);
             $insertStmt->bindValue(':status', $status, \PDO::PARAM_INT);
+
             $insertStmt->execute();
 
             header('Location: ' . $currentPath . '?saved=created');
@@ -112,21 +127,25 @@ $activeRolesStmt = $pdo->query(
 );
 $activeRoles = $activeRolesStmt->fetchAll(\PDO::FETCH_ASSOC);
 
+$branchesStmt = $pdo->query(
+    'SELECT branch_id, branch_name
+     FROM branches
+     WHERE status = 1
+     ORDER BY branch_name ASC'
+);
+$branches = $branchesStmt->fetchAll(\PDO::FETCH_ASSOC);
+
+
 $adminUsersStmt = $pdo->query(
-    'SELECT au.admin_user_id,
-            au.full_name,
-            au.username,
-            au.status,
+    'SELECT au.*,
             r.role_name,
-            au.email,
-            au.mobile,
-            au.last_login_at,
-            au.last_login_ip,
-            au.created_at
+            b.branch_name
      FROM admin_users au
      LEFT JOIN roles r ON r.role_id = au.role_id
+     LEFT JOIN branches b ON b.branch_id = au.branch_id
      ORDER BY au.admin_user_id DESC'
 );
+
 $adminUsers = $adminUsersStmt->fetchAll(\PDO::FETCH_ASSOC);
 
 require '../../includes/header.php';
@@ -171,7 +190,9 @@ require '../../includes/header.php';
                 <th class="text-800">Username</th>
                 <th class="text-800">Status</th>
                 <th class="text-800">Role</th>
+                <th class="text-800">Branch</th>
                 <th class="text-800">Email / Mobile</th>
+
                 <th class="text-800">Last Login Date</th>
                 <th class="text-800">Last Login IP</th>
               </tr>
@@ -179,8 +200,9 @@ require '../../includes/header.php';
             <tbody>
               <?php if (empty($adminUsers)): ?>
                 <tr>
-                  <td colspan="8" class="text-center py-3 text-600">No admin users found.</td>
+                  <td colspan="9" class="text-center py-3 text-600">No admin users found.</td>
                 </tr>
+
               <?php else: ?>
                 <?php foreach ($adminUsers as $user): ?>
                   <tr>
@@ -207,7 +229,9 @@ require '../../includes/header.php';
                       <?php endif; ?>
                     </td>
                     <td><?= htmlspecialchars((string) ($user['role_name'] ?: '-')) ?></td>
+                    <td><?= htmlspecialchars((string) ($user['branch_name'] ?: '-')) ?></td>
                     <td><?= htmlspecialchars((string) $user['email']) ?><br><small class="text-600"><?= htmlspecialchars((string) $user['mobile']) ?></small></td>
+
                     <td><?= $user['last_login_at'] ? htmlspecialchars(date('Y-m-d h:i A', strtotime((string) $user['last_login_at']))) : '-' ?></td>
                     <td><?= htmlspecialchars((string) ($user['last_login_ip'] ?: '-')) ?></td>
                   </tr>
@@ -278,10 +302,16 @@ require '../../includes/header.php';
 
           <div class="col-12">
             <div class="d-flex align-items-center gap-2">
-              <label class="form-label mb-0 text-nowrap" style="min-width: 92px;" for="branchName">Branch</label>
-              <input class="form-control form-control-sm" id="branchName" name="branch_name" type="text" placeholder="Enter branch" />
+              <label class="form-label mb-0 text-nowrap" style="min-width: 92px;" for="userBranch">Branch</label>
+              <select class="form-select form-select-sm" id="userBranch" name="branch_id">
+                <option value="" selected>Select Branch</option>
+                <?php foreach ($branches as $branch): ?>
+                  <option value="<?= (int) $branch['branch_id'] ?>"><?= htmlspecialchars((string) $branch['branch_name']) ?></option>
+                <?php endforeach; ?>
+              </select>
             </div>
           </div>
+
 
           <div class="col-12">
             <div class="d-flex align-items-center justify-content-between gap-2">

@@ -49,6 +49,24 @@ $navBasePath = $navBasePath ?? '';
           </li>
         <?php endif; ?>
       </ul>
+        <ul class="navbar-nav flex-column mb-3">
+          <?php if (has_permission('settings_manage')): ?>
+          <li class="nav-item">
+            <a class="nav-link" href="#settingsMenu" data-bs-toggle="collapse" role="button" aria-expanded="false" aria-controls="settingsMenu">
+              <div class="d-flex align-items-center">
+                <span class="nav-link-icon"><span class="fas fa-cogs"></span></span>
+                <span class="nav-link-text ps-1">Settings</span>
+              </div>
+            </a>
+            <ul class="nav collapse ms-3" id="settingsMenu">
+              <li class="nav-item"><a class="nav-link" href="<?= htmlspecialchars($navBasePath, ENT_QUOTES, 'UTF-8') ?>/app/settings/general.php">General</a></li>
+              <li class="nav-item"><a class="nav-link" href="<?= htmlspecialchars($navBasePath, ENT_QUOTES, 'UTF-8') ?>/app/settings/notifications.php">Notifications</a></li>
+              <li class="nav-item"><a class="nav-link" href="<?= htmlspecialchars($navBasePath, ENT_QUOTES, 'UTF-8') ?>/app/settings/sms.php">SMS</a></li>
+              <li class="nav-item"><a class="nav-link" href="<?= htmlspecialchars($navBasePath, ENT_QUOTES, 'UTF-8') ?>/app/settings/email.php">Email</a></li>
+            </ul>
+          </li>
+          <?php endif; ?>
+        </ul>
     </div>
   </div>
 </nav>

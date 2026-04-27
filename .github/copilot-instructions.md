@@ -50,7 +50,7 @@
 	- User selection options: 10, 20, 50 rows per page.
 	- `BaseModel` handles the calculation.
 - Combined List + Form Layout:
-	- When a list table and an add/edit form appear on the same page, the **list MUST always be on the LEFT** (`col-xl-8`) and the **form MUST always be on the RIGHT** (`col-xl-4`). No exceptions.
+	- When a list table and an add/edit form appear on the same page, the **list MUST always be on the LEFT** (`col-12` `col-md-8` `col-xxl-8` ) and the **form MUST always be on the RIGHT** (`col-12` `col-md-4` `col-xxl-4`). No exceptions.
 - Form-only pages (e.g., Add Admin User, Add Roles): use a full-width card or centered card — no side-by-side constraint applies.
 - Do NOT use Bootstrap modals/popups for add or edit operations. Use inline page forms or dedicated form pages instead.
 - Toggle fields (Status, boolean flags): MUST use `<div class="form-check form-switch">` with a checkbox input (value="1"). Never use a select dropdown for binary on/off fields.
