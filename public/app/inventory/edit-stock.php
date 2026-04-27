@@ -50,7 +50,12 @@ $currentPath    = $_SERVER['PHP_SELF'] ?? '/app/inventory/edit-stock.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string) ($_POST['action'] ?? '');
-
+    
+    // Debug: Log what we received
+    error_log("POST request received. Action: $action");
+    error_log("POST data keys: " . implode(', ', array_keys($_POST)));
+    
+    
     if ($action === 'save_stock_invoice') {
         $invoiceId   = isset($_POST['invoice_id'])   ? (int) $_POST['invoice_id']   : 0;
         $branchId    = isset($_POST['branch_id'])    ? (int) $_POST['branch_id']    : 0;
@@ -69,12 +74,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $rawEmi      = isset($_POST['emi_schedule']) && is_array($_POST['emi_schedule']) ? $_POST['emi_schedule'] : [];
         $rawPartial  = isset($_POST['partial_schedule']) && is_array($_POST['partial_schedule']) ? $_POST['partial_schedule'] : [];
         
+        // New partial payment fields
+        $cashPayment = isset($_POST['cash_payment']) ? max(0.0, (float) $_POST['cash_payment']) : 0.0;
+        $nextInstallmentQty = isset($_POST['next_installment_qty']) ? max(1, (int) $_POST['next_installment_qty']) : 1;
+        $dueMax = isset($_POST['due_max']) ? max(1, (int) $_POST['due_max']) : 30;
+        $dueInterval = in_array($_POST['due_interval'] ?? '', ['days', 'months'], true)
+                       ? (string) $_POST['due_interval'] : 'days';
+        
         $errors = [];
         if ($invoiceId <= 0)    $errors[] = 'Invalid invoice ID.';
         if ($branchId <= 0)     $errors[] = 'Please select a branch.';
         if ($vendorId <= 0)     $errors[] = 'Please select a vendor.';
         if ($invoiceDate === '') $errors[] = 'Invoice date is required.';
         if (empty($rawItems))   $errors[] = 'Please add at least one product item.';
+        
+        error_log("Validation errors: " . (empty($errors) ? 'None' : implode(', ', $errors)));
 
         $cleanItems = [];
         foreach ($rawItems as $rawItem) {
@@ -124,6 +138,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (empty($errors)) {
             try {
                 $pdo->beginTransaction();
+                
+                // Debug logging
+                error_log("Starting invoice update for ID: $invoiceId");
+                error_log("Items count: " . count($cleanItems));
 
                 $subtotal      = 0.0;
                 foreach ($cleanItems as $ci) {
@@ -140,7 +158,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $imageFileName = $imageHelper->ispts_compress($_FILES['invoice_image']);
                 }
 
-                $imageSql = $imageFileName !== null ? 'invoice_image = :invoice_image,' : '';
+                $imageSql = $imageFileName !== null ? 'invoice_image = :invoice_image, ' : '';
                 $invStmt = $pdo->prepare(
                     "UPDATE inventory_stock_invoices SET 
                        branch_id = :branch_id, vendor_id = :vendor_id, invoice_date = :invoice_date, 
@@ -166,7 +184,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($imageFileName !== null) {
                     $invStmt->bindValue(':invoice_image', $imageFileName, \PDO::PARAM_STR);
                 }
+                
+                error_log("Executing invoice update SQL...");
                 $invStmt->execute();
+                error_log("Invoice update affected rows: " . $invStmt->rowCount());
 
                 // Clear and re-insert child records
                 $pdo->prepare('DELETE FROM inventory_stock_invoice_items WHERE invoice_id = :id')->execute(['id' => $invoiceId]);
@@ -201,6 +222,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $itemInsert->execute();
 
                     $itemId = (int) $pdo->lastInsertId();
+                    error_log("Inserted item ID: $itemId for product: " . $ci['product_id']);
+                    
                     foreach ($ci['serials'] as $sr) {
                         $serialInsert->execute([
                             'item_id'    => $itemId,
@@ -233,13 +256,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
+                error_log("Committing transaction...");
                 $pdo->commit();
+                error_log("Transaction committed successfully");
+                
                 $alert = ['type' => 'success', 'message' => 'Invoice updated successfully.'];
                 header('Location: manage-stock.php?updated=1');
                 exit;
 
             } catch (\Throwable $ex) {
-                if ($pdo->inTransaction()) $pdo->rollBack();
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                    error_log("Transaction rolled back due to error: " . $ex->getMessage());
+                }
+                error_log("Update failed: " . $ex->getMessage());
                 $alert = ['type' => 'danger', 'message' => 'Update failed: ' . $ex->getMessage()];
             }
         } else {
@@ -330,7 +360,7 @@ require '../../includes/header.php';
   </div>
 <?php endif; ?>
 
-<form method="post" action="<?= htmlspecialchars($currentPath . '?edit_id=' . $editId) ?>" enctype="multipart/form-data" id="stockInvoiceForm">
+<form method="post" action="<?= htmlspecialchars($_SERVER['PHP_SELF'] . '?edit_id=' . $editId) ?>" enctype="multipart/form-data" id="stockInvoiceForm">
   <input type="hidden" name="action" value="save_stock_invoice">
   <input type="hidden" name="invoice_id" value="<?= $editId ?>">
 
@@ -373,35 +403,90 @@ require '../../includes/header.php';
     </div>
 
     <div class="card mb-3">
-      <div class="card-header border-bottom border-200"><h6 class="mb-0">Payment Mode</h6></div>
-      <div class="card-body">
-        <div class="d-flex gap-4 mb-3">
+    <div class="card-header border-bottom border-200">
+      <h6 class="mb-0">Payment Mode</h6>
+    </div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-12">
+          <div class="d-flex flex-wrap gap-4">
             <div class="form-check">
-                <input class="form-check-input" type="radio" name="payment_mode" id="pm_cash" value="cash" <?= $editInvoice['payment_mode'] === 'cash' ? 'checked' : '' ?>>
-                <label class="form-check-label" for="pm_cash">Cash (Full)</label>
+              <input class="form-check-input" type="radio" name="payment_mode" id="pm_cash" value="cash" <?= $editInvoice['payment_mode'] === 'cash' ? 'checked' : '' ?>>
+              <label class="form-check-label" for="pm_cash">
+                <span class="fas fa-money-bill-wave me-1 text-success"></span>Cash (Full)
+              </label>
             </div>
             <div class="form-check">
-                <input class="form-check-input" type="radio" name="payment_mode" id="pm_partial" value="partial" <?= $editInvoice['payment_mode'] === 'partial' ? 'checked' : '' ?>>
-                <label class="form-check-label" for="pm_partial">Partial / EMI</label>
+              <input class="form-check-input" type="radio" name="payment_mode" id="pm_partial" value="partial" <?= $editInvoice['payment_mode'] === 'partial' ? 'checked' : '' ?>>
+              <label class="form-check-label" for="pm_partial">
+                <span class="fas fa-clock me-1 text-warning"></span>Partial / Due / EMI
+              </label>
             </div>
+          </div>
         </div>
-        <div id="partialSection" style="display:none;">
-            <div id="partialScheduleContainer"></div>
-        </div>
-        <div id="emiSection" style="display:none;">
-            <div class="row g-2 mb-3 align-items-end">
-                <div class="col-md-3">
-                    <label class="form-label">EMI Count</label>
-                    <input class="form-control" type="number" id="emi_count" name="emi_count" value="<?= (int)$editInvoice['emi_count'] ?>" min="1">
-                </div>
-                <div class="col-md-3">
-                    <button type="button" class="btn btn-falcon-info btn-sm" id="generateEmiBtn">Re-generate</button>
-                </div>
+
+        <!-- Partial / Due Section -->
+        <div class="col-12" id="partialSection" style="display: <?= $editInvoice['payment_mode'] === 'partial' ? 'block' : 'none' ?>;">
+          <div class="row g-2 align-items-end mb-3">
+            <div class="col-md-3">
+              <label class="form-label" for="cash_payment">Cash Payment <span class="text-danger">*</span></label>
+              <input class="form-control" type="number" name="cash_payment" id="cash_payment" min="0" step="0.01" value="0.00" placeholder="Enter cash amount" oninput="ispts_onPartialChange();">
+              <small class="text-600">Amount paid in cash immediately.</small>
             </div>
-            <div id="emiScheduleContainer"></div>
+
+            <div class="col-md-3">
+              <label class="form-label" for="next_installment_qty">Number of EMIs <span class="text-danger">*</span></label>
+              <input class="form-control" type="number" name="next_installment_qty" id="next_installment_qty" min="1" value="1" placeholder="e.g. 3">
+              <small class="text-600">Number of remaining payment installments.</small>
+            </div>
+
+            <div class="col-md-2">
+              <label class="form-label" for="due_max">Due Max <span class="text-danger">*</span></label>
+              <input class="form-control" type="number" name="due_max" id="due_max" min="1" value="30" placeholder="e.g. 30">
+            </div>
+
+            <div class="col-md-2">
+              <label class="form-label">Interval</label>
+              <div class="d-flex gap-1">
+                <div class="form-check form-check-inline m-0">
+                  <input class="form-check-input" type="radio" name="due_interval" id="due_days_radio" value="days" checked>
+                  <label class="form-check-label fs-10" for="due_days_radio">Days</label>
+                </div>
+                <div class="form-check form-check-inline m-0">
+                  <input class="form-check-input" type="radio" name="due_interval" id="due_months_radio" value="months">
+                  <label class="form-check-label fs-10" for="due_months_radio">Months</label>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-md-2" style="display:none;">
+              <button type="button" class="btn btn-falcon-info btn-sm" id="generatePartialBtn">
+                <span class="fas fa-magic me-1"></span>Generate Schedule
+              </button>
+            </div>
+          </div>
+
+          <div id="partialScheduleContainer"></div>
+        </div>
+
+        <!-- EMI Section -->
+        <div class="col-12" id="emiSection" style="display:none;">
+          <div class="row g-2 align-items-end mb-3">
+            <div class="col-md-3">
+              <label class="form-label" for="emi_count">Number of EMIs <span class="text-danger">*</span></label>
+              <input class="form-control" type="number" name="emi_count" id="emi_count" min="1" max="60" value="<?= (int)$editInvoice['emi_count'] ?: 3 ?>" placeholder="e.g. 6">
+            </div>
+            <div class="col-md-2">
+              <button type="button" class="btn btn-falcon-info btn-sm" id="generateEmiBtn">
+                <span class="fas fa-magic me-1"></span>Generate Schedule
+              </button>
+            </div>
+          </div>
+          <div id="emiScheduleContainer"></div>
         </div>
       </div>
     </div>
+  </div>
 
     <div class="card mb-3">
       <div class="card-header border-bottom border-200"><h6 class="mb-0">Notes & Reference</h6></div>
@@ -636,8 +721,14 @@ require '../../includes/header.php';
         r.addEventListener('change', function() {
             document.getElementById('partialSection').style.display = this.value === 'partial' ? 'block' : 'none';
             document.getElementById('emiSection').style.display = this.value === 'emi' ? 'block' : 'none';
-            if (this.value === 'partial') generatePartialSchedule();
-            if (this.value === 'emi') generateEmiSchedule();
+            
+            if (this.value === 'partial') {
+                ispts_generatePartialSchedule();
+            }
+            if (this.value === 'emi') {
+                generateEmiSchedule();
+            }
+            updatePreview();
         });
     });
 
@@ -662,28 +753,67 @@ require '../../includes/header.php';
         container.innerHTML = html;
     }
 
-    function generatePartialSchedule() {
-        const container = document.getElementById('partialScheduleContainer');
+    // ── PARTIAL / DUE SCHEDULE GENERATOR ──────────────────────────────────────────
+    window.ispts_generatePartialSchedule = function () {
+        const cashPay = parseFloat(document.getElementById('cash_payment')?.value || '0') || 0;
+        const qty = parseInt(document.getElementById('next_installment_qty').value || '1', 10);
+        if (qty <= 0) qty = 1;
+        const dueMax = parseInt(document.getElementById('due_max').value || '30', 10);
+        const interval = document.querySelector('input[name="due_interval"]:checked')?.value || 'days';
         const grandTotal = parseFloat(document.getElementById('summaryGrandTotal').textContent) || 0;
-        let d = new Date();
-        d.setMonth(d.getMonth() + 1);
-        let dateStr = d.toISOString().split('T')[0];
         
-        container.innerHTML = `
-            <div class="row g-2">
-                <div class="col-md-6">
-                    <label class="form-label fs-11">Due Date</label>
-                    <input type="date" class="form-control form-control-sm" name="partial_schedule[0][due_date]" value="${dateStr}">
-                </div>
-                <div class="col-md-6">
-                    <label class="form-label fs-11">Remaining Balance</label>
-                    <input type="number" step="0.01" class="form-control form-control-sm bg-200" name="partial_schedule[0][amount]" value="${grandTotal.toFixed(2)}" readonly>
-                </div>
-            </div>
-        `;
-    }
+        const remaining = Math.max(0, grandTotal - cashPay);
+        const perInstallment = qty > 0 ? remaining / qty : remaining;
+
+        let html = '<div class="table-responsive"><table class="table table-sm fs-10 mb-0 border"><thead class="bg-body-tertiary"><tr><th style="width:36px">#</th><th>Payment Amount</th><th>Due Date</th></tr></thead><tbody>';
+        
+        let d = new Date();
+        for (let i = 0; i < qty; i++) {
+            if (interval === 'days') {
+                d.setDate(d.getDate() + dueMax);
+            } else {
+                d.setMonth(d.getMonth() + dueMax);
+            }
+            const dueDateStr = d.toISOString().split('T')[0];
+            const amt = i === qty - 1 ? remaining - (perInstallment * (qty - 1)) : perInstallment;
+            
+            html += '<tr>'
+               + '<td class="text-center text-600" style="width:40px;">' + (i + 1) + '</td>'
+               + '<td><input class="form-control form-control-sm text-end" type="number" step="0.01"'
+               +   ' name="partial_schedule[' + i + '][amount]" value="' + amt.toFixed(2) + '" oninput="ispts_onPartialChange();"></td>'
+               + '<td><input class="form-control form-control-sm" type="date"'
+               +   ' name="partial_schedule[' + i + '][due_date]" value="' + dueDateStr + '"></td>'
+               + '</tr>';
+        }
+        html += '</tbody></table></div>';
+        
+        document.getElementById('partialScheduleContainer').innerHTML = html;
+        updatePreview();
+    };
+
+    window.ispts_onPartialChange = function () {
+        updatePreview();
+    };
 
     document.getElementById('generateEmiBtn').addEventListener('click', generateEmiSchedule);
+
+    // Event listeners for partial payment fields
+    ['cash_payment', 'next_installment_qty', 'due_max', 'due_days_radio', 'due_months_radio'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('input', function () {
+            if (id === 'cash_payment' || id === 'next_installment_qty' || id === 'due_max') {
+                ispts_generatePartialSchedule();
+            }
+            updatePreview();
+        });
+        el.addEventListener('change', function () {
+            if (id === 'cash_payment' || id === 'next_installment_qty' || id === 'due_max') {
+                ispts_generatePartialSchedule();
+            }
+            updatePreview();
+        });
+    });
 
     // Prefill logic
     document.addEventListener('DOMContentLoaded', function() {
@@ -693,6 +823,10 @@ require '../../includes/header.php';
                 let idx = rowCounter - 1;
                 
                 let sel = document.getElementById(`product_${idx}`);
+                // Initialize Choices.js first if available, then set value
+                if(window.Choices && !sel._choicesInstance) {
+                    sel._choicesInstance = new window.Choices(sel, { searchEnabled: true, itemSelectText: '' });
+                }
                 if (sel._choicesInstance) {
                     sel._choicesInstance.setChoiceByValue(String(item.product_id));
                 } else {
@@ -745,7 +879,7 @@ require '../../includes/header.php';
                 }
             });
         } else if (mode === 'partial') {
-            generatePartialSchedule();
+            ispts_generatePartialSchedule();
             if (EDIT_PAYMENTS.length > 0) {
                 document.querySelector('[name="partial_schedule[0][due_date]"]').value = EDIT_PAYMENTS[0].due_date;
                 document.querySelector('[name="partial_schedule[0][amount]"]').value = EDIT_PAYMENTS[0].amount;
@@ -753,6 +887,46 @@ require '../../includes/header.php';
         }
         calcTotals();
         updatePreview();
+    });
+    
+    // Add form submission validation
+    document.getElementById('stockInvoiceForm').addEventListener('submit', function(e) {
+        // Check if we have at least one item
+        const itemRows = document.querySelectorAll('.item-row');
+        if (itemRows.length === 0) {
+            e.preventDefault();
+            alert('Please add at least one product item.');
+            return false;
+        }
+        
+        // Validate each item has a product selected
+        let validItems = 0;
+        itemRows.forEach((row, idx) => {
+            const productSelect = document.getElementById(`product_${row.dataset.idx}`);
+            if (productSelect && productSelect.value) {
+                validItems++;
+            }
+        });
+        
+        if (validItems === 0) {
+            e.preventDefault();
+            alert('Please select products for all items.');
+            return false;
+        }
+        
+        // Validate EMI count if EMI mode is selected
+        const paymentMode = document.querySelector('input[name="payment_mode"]:checked')?.value;
+        if (paymentMode === 'emi') {
+            const emiCount = document.getElementById('emi_count');
+            if (!emiCount.value || parseInt(emiCount.value) < 1) {
+                e.preventDefault();
+                alert('Please enter a valid EMI count (minimum 1).');
+                emiCount.focus();
+                return false;
+            }
+        }
+        
+        return true;
     });
 })();
 </script>
