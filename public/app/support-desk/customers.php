@@ -23,6 +23,14 @@ if ($perPage !== 'all' && !in_array($perPage, $allowedPerPage, true)) {
     $perPage = 20;
 }
 $page = max(1, (int) ($_GET['page'] ?? 1));
+$branchFilter = isset($_GET['filter_branch']) ? (int) $_GET['filter_branch'] : 0;
+
+$allBranches = [];
+try {
+    $allBranches = $pdo->query('SELECT branch_id, branch_name FROM branches WHERE status = 1 ORDER BY branch_name ASC')->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    $allBranches = [];
+}
 
 $conditions = [];
 $params = [];
@@ -42,6 +50,11 @@ if ($statusFilter === '1') {
     $conditions[] = 'c.status = 1';
 } elseif ($statusFilter === '0') {
     $conditions[] = 'c.status = 0';
+}
+
+if ($branchFilter > 0) {
+    $conditions[] = 'c.branch_id = :branch_id';
+    $params[':branch_id'] = $branchFilter;
 }
 
 $where = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
@@ -77,9 +90,10 @@ $customers = $listStmt->fetchAll(PDO::FETCH_ASSOC);
 function buildPageUrl(int|string $p, int|string $pp, string $q, string $status): string {
     return 'customers.php?' . http_build_query(array_filter([
         'page'     => $p,
-        'per_page' => $pp,
-        'q'        => $q,
-        'status'   => $status !== 'all' ? $status : '',
+        'per_page'      => $pp,
+        'q'             => $q,
+        'status'        => $status !== 'all' ? $status : '',
+        'filter_branch' => (int)($_GET['filter_branch'] ?? 0) ?: '',
     ], fn($v) => $v !== '' && $v !== null));
 }
 
@@ -129,6 +143,16 @@ require '../../includes/header.php';
           <option value="all" <?= $statusFilter === 'all' ? 'selected' : '' ?>>All Status</option>
           <option value="1"   <?= $statusFilter === '1'   ? 'selected' : '' ?>>Active</option>
           <option value="0"   <?= $statusFilter === '0'   ? 'selected' : '' ?>>Inactive</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <select class="form-select form-select-sm" name="filter_branch" onchange="this.form.submit()">
+          <option value="0">All Branches</option>
+          <?php foreach ($allBranches as $b): ?>
+            <option value="<?= (int)$b['branch_id'] ?>" <?= $branchFilter === (int)$b['branch_id'] ? 'selected' : '' ?>>
+              <?= htmlspecialchars((string)$b['branch_name']) ?>
+            </option>
+          <?php endforeach; ?>
         </select>
       </div>
       <div class="col-auto">

@@ -49,6 +49,34 @@ $navBasePath = $navBasePath ?? '';
           </li>
         <?php endif; ?>
       </ul>
+      <ul class="navbar-nav flex-column mb-3">
+        <?php if (has_permission('settings_manage')): ?>
+        <li class="nav-item">
+          <a class="nav-link" href="#adminMenu" data-bs-toggle="collapse" role="button" aria-expanded="false" aria-controls="adminMenu">
+            <div class="d-flex align-items-center">
+              <span class="nav-link-icon"><span class="fas fa-user-cog"></span></span>
+              <span class="nav-link-text ps-1">Administration</span>
+            </div>
+          </a>
+          <div class="collapse" id="adminMenu">
+            <ul class="nav flex-column ms-3">
+
+                <li class="nav-item">
+                  <a class="nav-link" href="<?= htmlspecialchars($navBasePath, ENT_QUOTES, 'UTF-8') ?>/app/administration/staff-users.php">
+                    <span class="nav-link-text">Staff Users</span>
+                  </a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="<?= htmlspecialchars($navBasePath, ENT_QUOTES, 'UTF-8') ?>/app/administration/time-zone.php">
+                    <span class="nav-link-text">Time zone</span>
+                  </a>
+                </li>
+
+            </ul>
+          </div>
+        </li>
+        <?php endif; ?>
+      </ul>
         <ul class="navbar-nav flex-column mb-3">
           <?php if (has_permission('settings_manage')): ?>
           <li class="nav-item">

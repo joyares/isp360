@@ -1,0 +1,21 @@
+RewriteEngine On
+
+# Admin Login specific route
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^sadmin/login\.php$ public/pages/authentication/split/sadmin_login.php [L,QSA]
+
+# Admin generic routes
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^sadmin/(.*)$ public/$1 [L,QSA]
+
+# Company-wise Login specific route
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^([^/]+)/login\.php$ public/pages/authentication/split/company_login.php?ext=$1 [L,QSA]
+
+# Company-wise generic routes
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^([^/]+)/(.*)$ public/$2?ext=$1 [L,QSA]

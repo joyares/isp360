@@ -86,6 +86,7 @@ $legacySafeColumns = [
   'user_type' => "ALTER TABLE companies ADD COLUMN user_type INT NOT NULL DEFAULT 1",
   'branch_access_type' => "ALTER TABLE companies ADD COLUMN branch_access_type VARCHAR(255) NOT NULL DEFAULT '0'",
   'partner_access_type' => "ALTER TABLE companies ADD COLUMN partner_access_type VARCHAR(255) NOT NULL DEFAULT '0'",
+  'auth_uri_extension' => "ALTER TABLE companies ADD COLUMN auth_uri_extension VARCHAR(100) NULL",
   'parentId' => "ALTER TABLE companies ADD COLUMN parentId INT NOT NULL DEFAULT 0",
   'partnerId' => "ALTER TABLE companies ADD COLUMN partnerId INT NOT NULL DEFAULT 0",
   'departmentId' => "ALTER TABLE companies ADD COLUMN departmentId INT NOT NULL DEFAULT 0",
@@ -233,6 +234,7 @@ $formData = [
   'departmentId' => 0,
   'roleId' => 0,
   'enabled' => 1,
+  'auth_uri_extension' => '',
 ];
 
 $branchFormData = [
@@ -276,6 +278,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $departmentId = isset($_POST['departmentId']) ? (int) $_POST['departmentId'] : 0;
     $roleId = isset($_POST['roleId']) ? (int) $_POST['roleId'] : 0;
     $enabled = isset($_POST['enabled']) ? 1 : 0;
+    $auth_uri_extension = trim((string) ($_POST['auth_uri_extension'] ?? ''));
     $sessionUserId = isset($_SESSION['admin_user_id']) ? (int) $_SESSION['admin_user_id'] : null;
 
     $iconUpload = $ispts_save_logo($_FILES['logo_icon'] ?? [], 'icon', 100, 100);
@@ -288,6 +291,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $alert = ['type' => 'danger', 'message' => (string) $mainUpload['error']];
     } elseif ($contactPersonImageUpload['error'] !== null) {
       $alert = ['type' => 'danger', 'message' => (string) $contactPersonImageUpload['error']];
+    } elseif ($auth_uri_extension !== '' && !preg_match('/^[a-z0-9]+$/', $auth_uri_extension)) {
+      $alert = ['type' => 'danger', 'message' => 'Auth URI Extension must contain only lowercase letters and numbers.'];
     }
 
     if ($alert === null) {
@@ -302,7 +307,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     notes = :notes, user_type = :user_type,
                     branch_access_type = :branch_access_type, partner_access_type = :partner_access_type,
                     parentId = :parentId, partnerId = :partnerRef, departmentId = :departmentId,
-                    roleId = :roleId, enabled = :enabled, status = :status, updated_by = :updated_by';
+                    roleId = :roleId, enabled = :enabled, status = :status, auth_uri_extension = :auth_uri_extension, updated_by = :updated_by';
         if ($iconUpload['path'] !== null) {
           $updateSql .= ', logo_icon = :logo_icon';
         }
@@ -333,6 +338,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $updateStmt->bindValue(':roleId', $roleId, \PDO::PARAM_INT);
         $updateStmt->bindValue(':enabled', $enabled, \PDO::PARAM_INT);
         $updateStmt->bindValue(':status', $enabled, \PDO::PARAM_INT);
+        $updateStmt->bindValue(':auth_uri_extension', $auth_uri_extension !== '' ? $auth_uri_extension : null);
         $updateStmt->bindValue(':updated_by', $sessionUserId, $sessionUserId === null ? \PDO::PARAM_NULL : \PDO::PARAM_INT);
         if ($iconUpload['path'] !== null) {
           $updateStmt->bindValue(':logo_icon', (string) $iconUpload['path']);
@@ -358,13 +364,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                   contact_person_name, contact_person_phone, contact_person_alt_phone, contact_person_email,
                   address, notes,
                     user_type, branch_access_type, partner_access_type, parentId, partnerId,
-                    departmentId, roleId, enabled, status, created_by
+                    departmentId, roleId, enabled, status, auth_uri_extension, created_by
                  ) VALUES (
                   :company_type, :username, :password, :email, :phone, :company, :logo_icon, :logo_main, :contact_person_img,
                   :contact_person_name, :contact_person_phone, :contact_person_alt_phone, :contact_person_email,
                   :address, :notes,
                     :user_type, :branch_access_type, :partner_access_type, :parentId, :partnerRef,
-                    :departmentId, :roleId, :enabled, :status, :created_by
+                    :departmentId, :roleId, :enabled, :status, :auth_uri_extension, :created_by
                  )'
       );
       $insertStmt->bindValue(':company_type', 'mother');
@@ -391,6 +397,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $insertStmt->bindValue(':roleId', $roleId, \PDO::PARAM_INT);
       $insertStmt->bindValue(':enabled', $enabled, \PDO::PARAM_INT);
       $insertStmt->bindValue(':status', $enabled, \PDO::PARAM_INT);
+      $insertStmt->bindValue(':auth_uri_extension', $auth_uri_extension !== '' ? $auth_uri_extension : null);
       $insertStmt->bindValue(':created_by', $sessionUserId, $sessionUserId === null ? \PDO::PARAM_NULL : \PDO::PARAM_INT);
       $insertStmt->execute();
 
@@ -419,6 +426,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       'departmentId' => $departmentId,
       'roleId' => $roleId,
       'enabled' => $enabled,
+      'auth_uri_extension' => $auth_uri_extension,
     ]);
   }
 
@@ -442,6 +450,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $departmentId = isset($_POST['departmentId']) ? (int) $_POST['departmentId'] : 0;
     $roleId = isset($_POST['roleId']) ? (int) $_POST['roleId'] : 0;
     $enabled = isset($_POST['enabled']) ? 1 : 0;
+    $auth_uri_extension = trim((string) ($_POST['auth_uri_extension'] ?? ''));
     $sessionUserId = isset($_SESSION['admin_user_id']) ? (int) $_SESSION['admin_user_id'] : null;
 
     // Partners are now stored in companies table with company_type = 'partner'
@@ -475,6 +484,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $alert = ['type' => 'danger', 'message' => (string) $mainUpload['error']];
       } elseif ($contactPersonImageUpload['error'] !== null) {
         $alert = ['type' => 'danger', 'message' => (string) $contactPersonImageUpload['error']];
+      } elseif ($auth_uri_extension !== '' && !preg_match('/^[a-z0-9]+$/', $auth_uri_extension)) {
+        $alert = ['type' => 'danger', 'message' => 'Auth URI Extension must contain only lowercase letters and numbers.'];
       }
 
       if ($alert === null) {
@@ -500,6 +511,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           'partnerId' => $partnerRef,
           'departmentId' => $departmentId,
           'roleId' => $roleId,
+          'auth_uri_extension' => $auth_uri_extension !== '' ? $auth_uri_extension : null,
         ];
         $fieldToColumnMap = [
           'email' => $partnersResolveColumn(['email']),
@@ -518,6 +530,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           'partnerId' => $partnersResolveColumn(['partnerId', 'partner_id']),
           'departmentId' => $partnersResolveColumn(['departmentId', 'department_id']),
           'roleId' => $partnersResolveColumn(['roleId', 'role_id']),
+          'auth_uri_extension' => $partnersResolveColumn(['auth_uri_extension']),
         ];
         $intFields = ['user_type', 'parentId', 'partnerId', 'departmentId', 'roleId', 'enabled', 'status'];
 
@@ -974,7 +987,7 @@ if ($editId > 0) {
                 logo_icon, logo_main, ' . $partnerContactImageSelect . ', contact_person_name, contact_person_phone, contact_person_alt_phone, contact_person_email,
                 address, notes,
                 user_type, branch_access_type, partner_access_type, parentId, partnerId,
-                departmentId, roleId, enabled
+                departmentId, roleId, enabled, auth_uri_extension
          FROM companies
        WHERE ' . $partnerIdColumn . ' = :id AND company_type = \'mother\' AND ' . $partnerDeletedCondition . '
          LIMIT 1'
@@ -1009,6 +1022,7 @@ if ($editId > 0) {
       'departmentId' => (int) ($editRow['departmentId'] ?? 0),
       'roleId' => (int) ($editRow['roleId'] ?? 0),
       'enabled' => (int) ($editRow['enabled'] ?? 1),
+      'auth_uri_extension' => (string) ($editRow['auth_uri_extension'] ?? ''),
     ];
   }
 }
@@ -1037,7 +1051,7 @@ $partnersStmt = $pdo->query(
   p.company, p.logo_icon, p.logo_main, ' . $partnerContactImageSelectAliased . ', p.contact_person_name, p.contact_person_phone,
   p.contact_person_alt_phone, p.contact_person_email, p.address, p.notes,
   p.branch_access_type, p.partner_access_type, p.departmentId, p.partnerId,
-  p.' . $partnerEnabledColumn . ' AS enabled, p.user_type, p.last_login, p.created_at,
+  p.' . $partnerEnabledColumn . ' AS enabled, p.user_type, p.auth_uri_extension, p.last_login, p.created_at,
             r.role_name,
             pp.username AS parent_username
      FROM companies p
@@ -1523,26 +1537,19 @@ require '../../includes/header.php';
                         </div>
                       </div>
 
-                      <!-- Row 3: Role, Type, Partner Access -->
+                      <!-- Row 3: Role, Type, Partner Access, Branch Access, Auth URI, Notes -->
                       <div class="row mb-2 g-2 fs-10 font-sans-serif fw-medium" style="padding-left:28px;">
-                        <div class="col-4"><span
-                            class="text-600">Role:</span><br><?= htmlspecialchars((string) (($p['role_name'] ?? '') !== '' ? $p['role_name'] : '-'), ENT_QUOTES, 'UTF-8') ?>
+                        <div class="col-12"><span class="text-600">Company
+                            Access: </span><?= htmlspecialchars((string) (($p['partner_access_type'] ?? '') !== '' ? $p['partner_access_type'] : '-'), ENT_QUOTES, 'UTF-8') ?>
                         </div>
-                        <div class="col-4"><span
-                            class="text-600">Type:</span><br><?= htmlspecialchars((string) ($userTypeLabels[(int) ($p['user_type'] ?? 1)] ?? 'Standard'), ENT_QUOTES, 'UTF-8') ?>
+                        <div class="col-12"><span class="text-600">Branch
+                            Access: </span><?= htmlspecialchars((string) (($p['branch_access_type'] ?? '') !== '' ? $p['branch_access_type'] : '-'), ENT_QUOTES, 'UTF-8') ?>
                         </div>
-                        <div class="col-4"><span class="text-600">Partner
-                            Access:</span><br><?= htmlspecialchars((string) (($p['partner_access_type'] ?? '') !== '' ? $p['partner_access_type'] : '-'), ENT_QUOTES, 'UTF-8') ?>
+                        <div class="col-12"><span class="text-600">Auth URI
+                            Ext: </span><?= htmlspecialchars((string) (($p['auth_uri_extension'] ?? '') !== '' ? $p['auth_uri_extension'] : '-'), ENT_QUOTES, 'UTF-8') ?>
                         </div>
-                      </div>
-
-                      <!-- Row 4: Branch Access, Notes -->
-                      <div class="row mb-2 g-2 fs-10 font-sans-serif fw-medium" style="padding-left:28px;">
-                        <div class="col-4"><span class="text-600">Branch
-                            Access:</span><br><?= htmlspecialchars((string) (($p['branch_access_type'] ?? '') !== '' ? $p['branch_access_type'] : '-'), ENT_QUOTES, 'UTF-8') ?>
-                        </div>
-                        <div class="col-8"><span
-                            class="text-600">Notes:</span><br><?= htmlspecialchars((string) (($p['notes'] ?? '') !== '' ? $p['notes'] : '-'), ENT_QUOTES, 'UTF-8') ?>
+                        <div class="col-12"><span
+                            class="text-600">Notes: </span><?= htmlspecialchars((string) (($p['notes'] ?? '') !== '' ? $p['notes'] : '-'), ENT_QUOTES, 'UTF-8') ?>
                         </div>
                       </div>
 
@@ -1686,30 +1693,12 @@ require '../../includes/header.php';
                 <?php endif; ?>
               </div>
 
-              <div class="col-md-6 col-xl-4">
+              <div class="col-12">
                 <div class="form-floating">
-                  <select class="form-select" id="pUserType" name="user_type" aria-label="User Type">
-                    <?php foreach ($userTypeLabels as $val => $label): ?>
-                      <option value="<?= $val ?>" <?= (int) $formData['user_type'] === $val ? 'selected' : '' ?>>
-                        <?= $label ?>
-                      </option>
-                    <?php endforeach; ?>
-                  </select>
-                  <label for="pUserType">User Type</label>
-                </div>
-              </div>
-
-              <div class="col-md-6 col-xl-4">
-                <div class="form-floating">
-                  <select class="form-select" id="pRole" name="roleId" aria-label="Role">
-                    <option value="0" <?= (int) $formData['roleId'] === 0 ? 'selected' : '' ?>>Select role</option>
-                    <?php foreach ($activeRoles as $role): ?>
-                      <option value="<?= (int) $role['role_id'] ?>" <?= (int) $formData['roleId'] === (int) $role['role_id'] ? 'selected' : '' ?>>
-                        <?= htmlspecialchars((string) $role['role_name']) ?>
-                      </option>
-                    <?php endforeach; ?>
-                  </select>
-                  <label for="pRole">Role</label>
+                  <input class="form-control" id="pAuthUriExtension" name="auth_uri_extension" type="text"
+                    placeholder="e.g. auth" pattern="[a-z0-9]+" title="Only lowercase letters and numbers (no spaces, no special characters)"
+                    value="<?= htmlspecialchars($formData['auth_uri_extension']) ?>" />
+                  <label for="pAuthUriExtension">Auth URI Extension</label>
                 </div>
               </div>
 
@@ -1735,23 +1724,7 @@ require '../../includes/header.php';
                 <div class="form-floating">
                   <input class="form-control" id="pPartnerAccess" name="partner_access_type" type="text" placeholder="0"
                     value="<?= htmlspecialchars($formData['partner_access_type']) ?>" />
-                  <label for="pPartnerAccess">Partner Access</label>
-                </div>
-              </div>
-
-              <div class="col-md-6 col-xl-4">
-                <div class="form-floating">
-                  <input class="form-control" id="pDept" name="departmentId" type="number" min="0" placeholder="0"
-                    value="<?= (int) $formData['departmentId'] ?>" />
-                  <label for="pDept">Department ID</label>
-                </div>
-              </div>
-
-              <div class="col-md-6 col-xl-4">
-                <div class="form-floating">
-                  <input class="form-control" id="pPartnerRef" name="partnerId" type="number" min="0" placeholder="0"
-                    value="<?= (int) $formData['partnerId'] ?>" />
-                  <label for="pPartnerRef">Partner Ref ID</label>
+                  <label for="pPartnerAccess">Company Access</label>
                 </div>
               </div>
 
@@ -1899,23 +1872,17 @@ require '../../includes/header.php';
                       </div>
 
                       <div class="row mb-2 g-2 fs-10 font-sans-serif fw-medium" style="padding-left:28px;">
-                        <div class="col-4"><span
-                            class="text-600">Role:</span><br><?= htmlspecialchars((string) (($pr['role_name'] ?? '') !== '' ? $pr['role_name'] : '-'), ENT_QUOTES, 'UTF-8') ?>
+                        <div class="col-12"><span class="text-600">Company
+                            Access: </span><?= htmlspecialchars((string) (($pr['partner_access_type'] ?? '') !== '' ? $pr['partner_access_type'] : '-'), ENT_QUOTES, 'UTF-8') ?>
                         </div>
-                        <div class="col-4"><span
-                            class="text-600">Type:</span><br><?= htmlspecialchars((string) ($userTypeLabels[(int) ($pr['user_type'] ?? 1)] ?? 'Standard'), ENT_QUOTES, 'UTF-8') ?>
+                        <div class="col-12"><span class="text-600">Branch
+                            Access: </span><?= htmlspecialchars((string) (($pr['branch_access_type'] ?? '') !== '' ? $pr['branch_access_type'] : '-'), ENT_QUOTES, 'UTF-8') ?>
                         </div>
-                        <div class="col-4"><span class="text-600">Partner
-                            Access:</span><br><?= htmlspecialchars((string) (($pr['partner_access_type'] ?? '') !== '' ? $pr['partner_access_type'] : '-'), ENT_QUOTES, 'UTF-8') ?>
+                        <div class="col-12"><span class="text-600">Auth URI
+                            Ext: </span><?= htmlspecialchars((string) (($pr['auth_uri_extension'] ?? '') !== '' ? $pr['auth_uri_extension'] : '-'), ENT_QUOTES, 'UTF-8') ?>
                         </div>
-                      </div>
-
-                      <div class="row mb-2 g-2 fs-10 font-sans-serif fw-medium" style="padding-left:28px;">
-                        <div class="col-4"><span class="text-600">Branch
-                            Access:</span><br><?= htmlspecialchars((string) (($pr['branch_access_type'] ?? '') !== '' ? $pr['branch_access_type'] : '-'), ENT_QUOTES, 'UTF-8') ?>
-                        </div>
-                        <div class="col-8"><span
-                            class="text-600">Notes:</span><br><?= htmlspecialchars((string) (($pr['notes'] ?? '') !== '' ? $pr['notes'] : '-'), ENT_QUOTES, 'UTF-8') ?>
+                        <div class="col-12"><span
+                            class="text-600">Notes: </span><?= htmlspecialchars((string) (($pr['notes'] ?? '') !== '' ? $pr['notes'] : '-'), ENT_QUOTES, 'UTF-8') ?>
                         </div>
                       </div>
 
@@ -2061,30 +2028,12 @@ require '../../includes/header.php';
               <?php endif; ?>
             </div>
 
-            <div class="col-md-6 col-xl-4">
+            <div class="col-12">
               <div class="form-floating">
-                <select class="form-select" id="pUserType" name="user_type" aria-label="User Type">
-                  <?php foreach ($userTypeLabels as $val => $label): ?>
-                    <option value="<?= $val ?>" <?= (int) $partnerTabFormData['user_type'] === $val ? 'selected' : '' ?>>
-                      <?= $label ?>
-                    </option>
-                  <?php endforeach; ?>
-                </select>
-                <label for="pUserType">User Type</label>
-              </div>
-            </div>
-
-            <div class="col-md-6 col-xl-4">
-              <div class="form-floating">
-                <select class="form-select" id="pRole" name="roleId" aria-label="Role">
-                  <option value="0" <?= (int) $partnerTabFormData['roleId'] === 0 ? 'selected' : '' ?>>Select role</option>
-                  <?php foreach ($activeRoles as $role): ?>
-                    <option value="<?= (int) $role['role_id'] ?>" <?= (int) $partnerTabFormData['roleId'] === (int) $role['role_id'] ? 'selected' : '' ?>>
-                      <?= htmlspecialchars((string) $role['role_name']) ?>
-                    </option>
-                  <?php endforeach; ?>
-                </select>
-                <label for="pRole">Role</label>
+                <input class="form-control" id="pAuthUriExtension" name="auth_uri_extension" type="text"
+                  placeholder="e.g. auth" pattern="[a-z0-9]+" title="Only lowercase letters and numbers (no spaces, no special characters)"
+                  value="<?= htmlspecialchars((string) ($partnerTabFormData['auth_uri_extension'] ?? '')) ?>" />
+                <label for="pAuthUriExtension">Auth URI Extension</label>
               </div>
             </div>
 
@@ -2113,23 +2062,7 @@ require '../../includes/header.php';
               <div class="form-floating">
                 <input class="form-control" id="pPartnerAccess" name="partner_access_type" type="text" placeholder="0"
                   value="<?= htmlspecialchars($partnerTabFormData['partner_access_type']) ?>" />
-                <label for="pPartnerAccess">Partner Access</label>
-              </div>
-            </div>
-
-            <div class="col-md-6 col-xl-4">
-              <div class="form-floating">
-                <input class="form-control" id="pDept" name="departmentId" type="number" min="0" placeholder="0"
-                  value="<?= (int) $partnerTabFormData['departmentId'] ?>" />
-                <label for="pDept">Department ID</label>
-              </div>
-            </div>
-
-            <div class="col-md-6 col-xl-4">
-              <div class="form-floating">
-                <input class="form-control" id="pPartnerRef" name="partnerId" type="number" min="0" placeholder="0"
-                  value="<?= (int) $partnerTabFormData['partnerId'] ?>" />
-                <label for="pPartnerRef">Partner Ref ID</label>
+                <label for="pPartnerAccess">Company Access</label>
               </div>
             </div>
 

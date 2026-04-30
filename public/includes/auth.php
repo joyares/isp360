@@ -30,7 +30,30 @@ if (!function_exists('ispts_get_login_path')) {
             $prefix = '';
         }
 
-        return $prefix . '/pages/authentication/split/login.php';
+        // Determine if we are already in a virtual route
+        $uriPath = explode('?', $_SERVER['REQUEST_URI'] ?? '')[0];
+        
+        // If the current prefix does NOT contain /sadmin, it means it's a company prefix or we are using a generic fallback.
+        // But if the URL already has the company ext (e.g. /friendsonline/), the base path already includes it!
+        // So we can just append /login.php if it's a company route.
+        if (strpos($uriPath, '/sadmin') !== false) {
+            // Strip sadmin from prefix to rebuild clean path
+            $cleanPrefix = preg_replace('#/sadmin$#', '', $prefix);
+            return preg_replace('#/+#', '/', $cleanPrefix . '/sadmin/login.php');
+        } else {
+            // It could be a company route. Let's check if the prefix has something other than /public or empty
+            if (isset($_GET['ext']) && $_GET['ext'] !== '') {
+                $ext = trim($_GET['ext']);
+                $cleanPrefix = preg_replace('#/' . preg_quote($ext, '#') . '$#', '', $prefix);
+                return preg_replace('#/+#', '/', $cleanPrefix . '/' . $ext . '/login.php');
+            } elseif (!empty($_SESSION['auth_uri_extension'])) {
+                $ext = $_SESSION['auth_uri_extension'];
+                $cleanPrefix = preg_replace('#/' . preg_quote($ext, '#') . '$#', '', $prefix);
+                return preg_replace('#/+#', '/', $cleanPrefix . '/' . $ext . '/login.php');
+            }
+        }
+
+        return preg_replace('#/+#', '/', $prefix . '/sadmin/login.php');
     }
 }
 
@@ -66,6 +89,22 @@ if (!function_exists('ispts_resolve_app_base_path')) {
         $appBasePath = substr($normalizedPublicRoot, strlen($normalizedDocumentRoot));
         $appBasePath = '/' . trim((string) $appBasePath, '/');
 
+        ispts_start_session();
+        $userType = $_SESSION['user_type'] ?? '';
+        $uriPath = explode('?', $_SERVER['REQUEST_URI'] ?? '')[0];
+
+        if ($userType === 'staff' && !empty($_SESSION['auth_uri_extension'])) {
+            $appBasePath = preg_replace('#/public$#', '/' . $_SESSION['auth_uri_extension'], $appBasePath);
+        } elseif ($userType === 'admin') {
+            $appBasePath = preg_replace('#/public$#', '/sadmin', $appBasePath);
+        } else {
+            if (isset($_GET['ext']) && $_GET['ext'] !== '') {
+                $appBasePath = preg_replace('#/public$#', '/' . trim($_GET['ext']), $appBasePath);
+            } elseif (strpos($uriPath, '/sadmin/') !== false) {
+                $appBasePath = preg_replace('#/public$#', '/sadmin', $appBasePath);
+            }
+        }
+
         return $appBasePath === '/' ? '' : $appBasePath;
     }
 }
@@ -91,6 +130,11 @@ if (!function_exists('ispts_extract_enabled_slugs')) {
 
         $walker = function (array $nodes) use (&$walker, &$slugs): void {
             foreach ($nodes as $node) {
+                if (is_string($node) && $node !== '') {
+                    $slugs[] = $node;
+                    continue;
+                }
+                
                 if (!is_array($node)) {
                     continue;
                 }
@@ -123,15 +167,18 @@ if (!function_exists('ispts_attempt_admin_login')) {
         }
 
         $pdo = Database::getConnection();
+        
+        // 1. Try Admin Users
         $stmt = $pdo->prepare(
-            'SELECT au.admin_user_id,
+            'SELECT au.admin_user_id AS user_id,
                     au.role_id,
                     au.full_name,
                     au.username,
                     au.password_hash,
                     au.status,
                     r.role_name,
-                    r.menu_tree_json
+                    r.menu_tree_json,
+                    \'admin\' AS user_type
              FROM admin_users au
              LEFT JOIN roles r ON r.role_id = au.role_id
              WHERE au.username = :username
@@ -139,7 +186,6 @@ if (!function_exists('ispts_attempt_admin_login')) {
         );
         $stmt->bindValue(':username', $username);
         $stmt->execute();
-
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$user || (int) ($user['status'] ?? 0) !== 1) {
@@ -153,11 +199,92 @@ if (!function_exists('ispts_attempt_admin_login')) {
 
         session_regenerate_id(true);
 
-        $_SESSION['admin_user_id'] = (int) $user['admin_user_id'];
+        $_SESSION['admin_user_id'] = (int) $user['user_id'];
         $_SESSION['admin_username'] = (string) $user['username'];
-        $_SESSION['admin_full_name'] = (string) ($user['full_name'] ?? 'Admin');
+        $_SESSION['admin_full_name'] = (string) ($user['full_name'] ?? 'User');
         $_SESSION['admin_role_id'] = (int) ($user['role_id'] ?? 0);
         $_SESSION['admin_role_name'] = (string) ($user['role_name'] ?? '');
+        $_SESSION['user_type'] = (string) $user['user_type'];
+
+        $permissions = [];
+        $menuTreeRaw = (string) ($user['menu_tree_json'] ?? '');
+        if ($menuTreeRaw !== '') {
+            $decoded = json_decode($menuTreeRaw, true);
+            if (is_array($decoded)) {
+                $permissions = ispts_extract_enabled_slugs($decoded);
+            }
+        }
+        $_SESSION['user_permissions'] = $permissions;
+
+        return ['success' => true, 'message' => 'Login successful.'];
+    }
+}
+
+if (!function_exists('ispts_attempt_staff_login')) {
+    function ispts_attempt_staff_login(string $username, string $password, string $companyAuthUriExt): array
+    {
+        ispts_start_session();
+
+        $username = trim($username);
+        if ($username === '' || $password === '') {
+            return ['success' => false, 'message' => 'Username and Password are required.'];
+        }
+
+        $pdo = Database::getConnection();
+
+        // 1. Verify Company by Auth URI Ext
+        $stmt = $pdo->prepare('SELECT id, company, logo_icon, logo_main FROM companies WHERE auth_uri_extension = :ext AND enabled = 1 AND deleted_at IS NULL LIMIT 1');
+        $stmt->bindValue(':ext', $companyAuthUriExt);
+        $stmt->execute();
+        $company = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$company) {
+            return ['success' => false, 'message' => 'Invalid or inactive Company URL.'];
+        }
+
+        // 2. Try Staff Users in this company
+        $stmt = $pdo->prepare(
+            'SELECT su.staff_user_id AS user_id,
+                    su.role_id,
+                    su.full_name,
+                    su.username,
+                    su.password_hash,
+                    su.status,
+                    r.role_name,
+                    r.menu_tree_json,
+                    \'staff\' AS user_type
+             FROM staff_users su
+             LEFT JOIN roles r ON r.role_id = su.role_id
+             WHERE su.username = :username AND su.company_id = :company_id
+             LIMIT 1'
+        );
+        $stmt->bindValue(':username', $username);
+        $stmt->bindValue(':company_id', $company['id']);
+        $stmt->execute();
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$user || (int) ($user['status'] ?? 0) !== 1) {
+            return ['success' => false, 'message' => 'Invalid username or password.'];
+        }
+
+        $passwordHash = (string) ($user['password_hash'] ?? '');
+        if ($passwordHash === '' || !password_verify($password, $passwordHash)) {
+            return ['success' => false, 'message' => 'Invalid username or password.'];
+        }
+
+        session_regenerate_id(true);
+
+        $_SESSION['admin_user_id'] = (int) $user['user_id'];
+        $_SESSION['admin_username'] = (string) $user['username'];
+        $_SESSION['admin_full_name'] = (string) ($user['full_name'] ?? 'User');
+        $_SESSION['admin_role_id'] = (int) ($user['role_id'] ?? 0);
+        $_SESSION['admin_role_name'] = (string) ($user['role_name'] ?? '');
+        $_SESSION['user_type'] = (string) $user['user_type'];
+        $_SESSION['company_id'] = (int) $company['id'];
+        $_SESSION['company_name'] = (string) $company['company'];
+        $_SESSION['company_logo'] = (string) ($company['logo_icon'] ?? '');
+        $_SESSION['company_logo_main'] = (string) ($company['logo_main'] ?? '');
+        $_SESSION['auth_uri_extension'] = $companyAuthUriExt;
 
         $permissions = [];
         $menuTreeRaw = (string) ($user['menu_tree_json'] ?? '');
@@ -198,28 +325,39 @@ if (!function_exists('ispts_is_employee_user')) {
     }
 }
 
-if (!function_exists('ispts_can_manage_customers')) {
-    function ispts_can_manage_customers(): bool
+if (!function_exists('has_permission')) {
+    function has_permission(string $slug): bool
     {
-        if (ispts_is_authenticated()) {
-            $roleName = strtolower((string) ($_SESSION['admin_role_name'] ?? ''));
-            if (
-                $roleName === 'super admin' ||
-                $roleName === 'super daddy' ||
-                strpos($roleName, 'super admin') !== false ||
-                strpos($roleName, 'super daddy') !== false
-            ) {
-                return true;
-            }
+        ispts_start_session();
+
+        if (!ispts_is_authenticated()) {
+            return false;
         }
 
-        if (ispts_is_employee_user()) {
+        $roleName = strtolower((string) ($_SESSION['admin_role_name'] ?? ''));
+        if (
+            $roleName === 'super admin' ||
+            $roleName === 'super daddy' ||
+            strpos($roleName, 'super admin') !== false ||
+            strpos($roleName, 'super daddy') !== false
+        ) {
             return true;
         }
 
         $permissions = $_SESSION['user_permissions'] ?? [];
         if (!is_array($permissions)) {
             return false;
+        }
+
+        return in_array($slug, $permissions, true);
+    }
+}
+
+if (!function_exists('ispts_can_manage_customers')) {
+    function ispts_can_manage_customers(): bool
+    {
+        if (has_permission('customer') || has_permission('customer_registration')) {
+            return true;
         }
 
         $allowedSlugs = [
@@ -230,12 +368,8 @@ if (!function_exists('ispts_can_manage_customers')) {
             'support_customer_edit',
         ];
 
-        foreach ($permissions as $permission) {
-            if (is_string($permission) && in_array($permission, $allowedSlugs, true)) {
-                return true;
-            }
-
-            if (is_array($permission) && isset($permission['slug']) && in_array((string) $permission['slug'], $allowedSlugs, true)) {
+        foreach ($allowedSlugs as $slug) {
+            if (has_permission($slug)) {
                 return true;
             }
         }

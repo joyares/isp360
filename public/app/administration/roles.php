@@ -107,24 +107,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $alert = ['type' => 'danger', 'message' => 'Role Name and Role Type are required.'];
             $editRoleId = $incomingRoleId;
         } else {
-          if ($incomingRoleId > 0) {
-            $protectedStmt = $pdo->prepare(
-              'SELECT role_name, role_type, status, menu_tree_json
-               FROM roles
-               WHERE role_id = :role_id
-               LIMIT 1'
-            );
-            $protectedStmt->bindValue(':role_id', $incomingRoleId, \PDO::PARAM_INT);
-            $protectedStmt->execute();
-            $protectedRole = $protectedStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
-
-            if ($protectedRole && strcasecmp((string) $protectedRole['role_name'], 'Super Daddy') === 0) {
-              $roleType = (string) ($protectedRole['role_type'] ?? $roleType);
-              $status = (int) ($protectedRole['status'] ?? $status);
-              $decodedProtectedMenus = json_decode((string) ($protectedRole['menu_tree_json'] ?? '[]'), true);
-              $menuAccess = is_array($decodedProtectedMenus) ? array_values(array_unique($decodedProtectedMenus)) : [];
-            }
-          }
+          // No forced restore for Super Daddy, allow all updates to persist
 
             $baseSlug = ispts_slugify($roleName);
             $roleSlug = ispts_unique_role_slug($pdo, $baseSlug, $incomingRoleId > 0 ? $incomingRoleId : null);
@@ -236,7 +219,7 @@ $formValues = [
     'edit_role_id' => $editRole['role_id'] ?? 0,
 ];
 
-  $isSuperDaddyRole = $editRole && strcasecmp((string) ($editRole['role_name'] ?? ''), 'Super Daddy') === 0;
+  $isSuperDaddyRole = false; // Always allow editing for Super Daddy
 
 $listStmt = $pdo->query(
     'SELECT role_id, role_name, role_type, role_description, status, created_at
@@ -362,7 +345,7 @@ require '../../includes/header.php';
 
               <div class="col-12">
                 <label class="form-label" for="roleType">Role Type</label>
-                <select class="form-select form-select-sm" id="roleType" name="role_type" <?= $isSuperDaddyRole ? 'disabled' : '' ?> required>
+                <select class="form-select form-select-sm" id="roleType" name="role_type" required>
                   <option value="" disabled <?= $formValues['role_type'] === '' ? 'selected' : '' ?>>Select Role Type</option>
                   <?php
                   $roleTypeOptions = [
@@ -377,20 +360,16 @@ require '../../includes/header.php';
                     <option value="<?= $optionValue ?>" <?= $formValues['role_type'] === $optionValue ? 'selected' : '' ?>><?= $optionLabel ?></option>
                   <?php endforeach; ?>
                 </select>
-                <?php if ($isSuperDaddyRole): ?>
-                  <input type="hidden" name="role_type" value="<?= htmlspecialchars((string) $formValues['role_type']) ?>" />
-                <?php endif; ?>
+
               </div>
 
               <div class="col-12">
                 <label class="form-label d-block">Role Status</label>
                 <div class="form-check form-switch">
-                  <input class="form-check-input" type="checkbox" id="roleStatus" name="status" value="1" <?= (int) $formValues['status'] === 1 ? 'checked' : '' ?> <?= $isSuperDaddyRole ? 'disabled' : '' ?> />
+                  <input class="form-check-input" type="checkbox" id="roleStatus" name="status" value="1" <?= (int) $formValues['status'] === 1 ? 'checked' : '' ?> />
                   <label class="form-check-label fs-10" for="roleStatus">Active</label>
                 </div>
-                <?php if ($isSuperDaddyRole && (int) $formValues['status'] === 1): ?>
-                  <input type="hidden" name="status" value="1" />
-                <?php endif; ?>
+
               </div>
 
               <div class="col-12">
@@ -411,7 +390,7 @@ require '../../includes/header.php';
             <div class="d-flex align-items-center justify-content-between">
               <label class="form-label d-block mb-0" for="selectMenusMaster">Select Menus</label>
               <div class="form-check form-switch m-0">
-                <input class="form-check-input" type="checkbox" id="selectMenusMaster" <?= $isSuperDaddyRole ? 'disabled' : '' ?> />
+                <input class="form-check-input" type="checkbox" id="selectMenusMaster" />
               </div>
             </div>
             <div id="roleMenuTree" class="pt-1">
@@ -432,7 +411,7 @@ require '../../includes/header.php';
     if (!treeContainer || !navRoot || !masterToggle) return;
 
     var selectedMenuKeys = <?= json_encode(array_values(array_unique($selectedMenuKeys)), JSON_UNESCAPED_SLASHES) ?>;
-    var lockMenuToggles = <?= $isSuperDaddyRole ? 'true' : 'false' ?>;
+    var lockMenuToggles = false;
 
     var toSlug = function (value) {
       return (value || '')
@@ -558,6 +537,12 @@ require '../../includes/header.php';
               childSwitch.checked = input.checked;
             });
           });
+
+          if (!input.checked) {
+            childSwitches.forEach(function (childSwitch) {
+              childSwitch.checked = false;
+            });
+          }
 
           li.appendChild(childrenWrap);
         }

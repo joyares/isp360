@@ -50,6 +50,14 @@ try {
   $activeRoles = [];
 }
 
+// Ensure columns exist
+try {
+    $pdo->exec("ALTER TABLE staff_users ADD COLUMN company_id BIGINT UNSIGNED AFTER role_id");
+} catch (Exception $e) {}
+try {
+    $pdo->exec("ALTER TABLE staff_users ADD COLUMN branch_id BIGINT UNSIGNED AFTER company_id");
+} catch (Exception $e) {}
+
 $alert = null;
 $currentPath = $_SERVER['PHP_SELF'] ?? '/app/administration/staff-users.php';
 $savedFlag = $_GET['saved'] ?? '';
@@ -58,50 +66,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'save_staff_user') {
+        $editStaffUserId = isset($_POST['edit_staff_user_id']) ? (int)$_POST['edit_staff_user_id'] : 0;
         $roleId       = isset($_POST['role_id'])    ? (int) $_POST['role_id']    : 0;
         $fullName     = trim((string) ($_POST['full_name']    ?? ''));
         $companyId    = isset($_POST['company_id']) ? (int)$_POST['company_id'] : 0;
         $branchId     = isset($_POST['branch_id']) ? (int)$_POST['branch_id'] : 0;
-        $username     = trim((string) ($_POST['username']     ?? ''));
-        $password     = (string) ($_POST['password']          ?? '');
-        $email        = trim((string) ($_POST['email']        ?? ''));
-        $mobile       = trim((string) ($_POST['mobile']       ?? ''));
-
-        $status       = isset($_POST['status']) ? 1 : 0;
-
-        if ($roleId <= 0 || $fullName === '' || $username === '' || $password === '' || $email === '' || $mobile === '') {
-            $alert = ['type' => 'danger', 'message' => 'Role, Name, Username, Password, Email and Mobile are required.'];
-        } else {
-            $insertStmt = $pdo->prepare(
-                'INSERT INTO staff_users (
-                    role_id, full_name, department, designation, username, password_hash,
-                    email, mobile, status
-                 ) VALUES (
-                    :role_id, :full_name, :department, :designation, :username, :password_hash,
-                    :email, :mobile, :status
-                 )'
-            );
-            $insertStmt->bindValue(':role_id',       $roleId, \PDO::PARAM_INT);
-            $insertStmt->bindValue(':full_name',     $fullName);
-            $insertStmt->bindValue(':department',    $department !== '' ? $department : null);
-            $insertStmt->bindValue(':designation',   $designation !== '' ? $designation : null);
-            $insertStmt->bindValue(':username',      $username);
-            $insertStmt->bindValue(':password_hash', password_hash($password, PASSWORD_DEFAULT));
-            $insertStmt->bindValue(':email',         $email);
-            $insertStmt->bindValue(':mobile',        $mobile);
-
-            $insertStmt->bindValue(':status',        $status, \PDO::PARAM_INT);
-            $insertStmt->execute();
-
-            header('Location: ' . $currentPath . '?saved=created');
-            exit;
-        }
-    }
-
-      if ($action === 'save_staff_user') {
-        $editStaffUserId = isset($_POST['edit_staff_user_id']) ? (int)$_POST['edit_staff_user_id'] : 0;
-        $roleId       = isset($_POST['role_id'])    ? (int) $_POST['role_id']    : 0;
-        $fullName     = trim((string) ($_POST['full_name']    ?? ''));
         $department   = trim((string) ($_POST['department']   ?? ''));
         $designation  = trim((string) ($_POST['designation']  ?? ''));
         $username     = trim((string) ($_POST['username']     ?? ''));
@@ -110,65 +79,71 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $mobile       = trim((string) ($_POST['mobile']       ?? ''));
         $status       = isset($_POST['status']) ? 1 : 0;
 
-        if ($roleId <= 0 || $fullName === '' || $username === '' || $email === '' || $mobile === '') {
-          $alert = ['type' => 'danger', 'message' => 'Role, Name, Username, Email and Mobile are required.'];
-        } else if ($editStaffUserId > 0) {
-          // Update existing staff user
-          $updateFields = [
-            'role_id' => $roleId,
-            'full_name' => $fullName,
-            'company_id' => $companyId,
-            'branch_id' => $branchId,
-            'email' => $email,
-            'mobile' => $mobile,
-            'status' => $status
-          ];
-          $setSql = '';
-          foreach ($updateFields as $field => $val) {
-            $setSql .= "$field = :$field, ";
-          }
-          if ($password !== '') {
-            $setSql .= "password_hash = :password_hash, ";
-          }
-          $setSql = rtrim($setSql, ', ');
-          $updateStmt = $pdo->prepare("UPDATE staff_users SET $setSql WHERE staff_user_id = :staff_user_id");
-          foreach ($updateFields as $field => $val) {
-            $updateStmt->bindValue(":$field", $val);
-          }
-          if ($password !== '') {
-            $updateStmt->bindValue(":password_hash", password_hash($password, PASSWORD_DEFAULT));
-          }
-          $updateStmt->bindValue(":staff_user_id", $editStaffUserId, PDO::PARAM_INT);
-          $updateStmt->execute();
-          header('Location: ' . $currentPath . '?saved=updated');
-          exit;
+        if ($roleId <= 0 || $fullName === '' || $username === '' || ($editStaffUserId <= 0 && $password === '') || $email === '' || $mobile === '') {
+            $alert = ['type' => 'danger', 'message' => 'Role, Name, Username, ' . ($editStaffUserId <= 0 ? 'Password, ' : '') . 'Email and Mobile are required.'];
         } else {
-          // Insert new staff user
-          $insertStmt = $pdo->prepare(
-            'INSERT INTO staff_users (
-              role_id, full_name, company_id, branch_id, username, password_hash,
-              email, mobile, status
-             ) VALUES (
-              :role_id, :full_name, :company_id, :branch_id, :username, :password_hash,
-              :email, :mobile, :status
-             )'
-          );
-          $insertStmt->bindValue(':role_id',       $roleId, \PDO::PARAM_INT);
-          $insertStmt->bindValue(':full_name',     $fullName);
-          $insertStmt->bindValue(':company_id',    $companyId);
-          $insertStmt->bindValue(':branch_id',     $branchId);
-          $insertStmt->bindValue(':username',      $username);
-          $insertStmt->bindValue(':password_hash', password_hash($password, PASSWORD_DEFAULT));
-          $insertStmt->bindValue(':email',         $email);
-          $insertStmt->bindValue(':mobile',        $mobile);
-          $insertStmt->bindValue(':status',        $status, \PDO::PARAM_INT);
-          $insertStmt->execute();
-          header('Location: ' . $currentPath . '?saved=created');
-          exit;
+            if ($editStaffUserId > 0) {
+                // Update existing
+                $updateFields = [
+                    'role_id'     => $roleId,
+                    'full_name'   => $fullName,
+                    'company_id'  => $companyId,
+                    'branch_id'   => $branchId,
+                    'department'  => $department !== '' ? $department : null,
+                    'designation' => $designation !== '' ? $designation : null,
+                    'username'    => $username,
+                    'email'       => $email,
+                    'mobile'      => $mobile,
+                    'status'      => $status
+                ];
+                $setSql = '';
+                foreach ($updateFields as $field => $val) {
+                    $setSql .= "$field = :$field, ";
+                }
+                if ($password !== '') {
+                    $setSql .= "password_hash = :password_hash, ";
+                }
+                $setSql = rtrim($setSql, ', ');
+                $updateStmt = $pdo->prepare("UPDATE staff_users SET $setSql WHERE staff_user_id = :staff_user_id");
+                foreach ($updateFields as $field => $val) {
+                    $updateStmt->bindValue(":$field", $val);
+                }
+                if ($password !== '') {
+                    $updateStmt->bindValue(":password_hash", password_hash($password, PASSWORD_DEFAULT));
+                }
+                $updateStmt->bindValue(":staff_user_id", $editStaffUserId, PDO::PARAM_INT);
+                $updateStmt->execute();
+                header('Location: ' . $currentPath . '?saved=updated');
+                exit;
+            } else {
+                // Insert new
+                $insertStmt = $pdo->prepare(
+                    'INSERT INTO staff_users (
+                        role_id, full_name, company_id, branch_id, department, designation, username, password_hash,
+                        email, mobile, status
+                    ) VALUES (
+                        :role_id, :full_name, :company_id, :branch_id, :department, :designation, :username, :password_hash,
+                        :email, :mobile, :status
+                    )'
+                );
+                $insertStmt->bindValue(':role_id',       $roleId, \PDO::PARAM_INT);
+                $insertStmt->bindValue(':full_name',     $fullName);
+                $insertStmt->bindValue(':company_id',    $companyId, \PDO::PARAM_INT);
+                $insertStmt->bindValue(':branch_id',     $branchId, \PDO::PARAM_INT);
+                $insertStmt->bindValue(':department',    $department !== '' ? $department : null);
+                $insertStmt->bindValue(':designation',   $designation !== '' ? $designation : null);
+                $insertStmt->bindValue(':username',      $username);
+                $insertStmt->bindValue(':password_hash', password_hash($password, PASSWORD_DEFAULT));
+                $insertStmt->bindValue(':email',         $email);
+                $insertStmt->bindValue(':mobile',        $mobile);
+                $insertStmt->bindValue(':status',        $status, \PDO::PARAM_INT);
+                $insertStmt->execute();
+                header('Location: ' . $currentPath . '?saved=created');
+                exit;
+            }
         }
-      }
-
     }
+}
 
     $staffUsersStmt = $pdo->query('SELECT su.*, r.role_name FROM staff_users su LEFT JOIN roles r ON r.role_id = su.role_id ORDER BY su.staff_user_id DESC');
     $staffUsers = $staffUsersStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -323,10 +298,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $companies = [];
           }
 
-          // Fetch branches with company_id
+          // Fetch branches with partner_id
           $branches = [];
           try {
-            $branchesStmt = $pdo->query("SELECT branch_id, branch_name, company_id FROM branches WHERE status = 1");
+            $branchesStmt = $pdo->query("SELECT branch_id, branch_name, partner_id FROM branches WHERE status = 1");
             $branches = $branchesStmt ? $branchesStmt->fetchAll(PDO::FETCH_ASSOC) : [];
           } catch (Throwable $e) {
             $branches = [];
@@ -351,9 +326,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
               <select class="form-select form-select-sm" id="staffBranch" name="branch_id" required>
                 <option value="" disabled <?= !$editStaffUser ? 'selected' : '' ?>>Select Branch</option>
                 <?php foreach ($branches as $branch): ?>
-                  <option value="<?= (int)$branch['branch_id'] ?>" data-company="<?= (int)$branch['company_id'] ?>" <?= $editStaffUser && $editStaffUser['branch_id'] == $branch['branch_id'] ? 'selected' : '' ?>><?= htmlspecialchars($branch['branch_name']) ?></option>
+                  <option value="<?= (int)$branch['branch_id'] ?>" data-company="<?= (int)$branch['partner_id'] ?>" <?= $editStaffUser && $editStaffUser['branch_id'] == $branch['branch_id'] ? 'selected' : '' ?>><?= htmlspecialchars($branch['branch_name']) ?></option>
                 <?php endforeach; ?>
               </select>
+            </div>
+          </div>
+
+          <div class="col-12">
+            <div class="d-flex align-items-center gap-2">
+              <label class="form-label mb-0 text-nowrap" style="min-width: 100px;" for="staffDept">Department</label>
+              <input class="form-control form-control-sm" id="staffDept" name="department" type="text" placeholder="Enter department" value="<?= $editStaffUser ? htmlspecialchars($editStaffUser['department'] ?? '') : '' ?>" />
+            </div>
+          </div>
+
+          <div class="col-12">
+            <div class="d-flex align-items-center gap-2">
+              <label class="form-label mb-0 text-nowrap" style="min-width: 100px;" for="staffDesig">Designation</label>
+              <input class="form-control form-control-sm" id="staffDesig" name="designation" type="text" placeholder="Enter designation" value="<?= $editStaffUser ? htmlspecialchars($editStaffUser['designation'] ?? '') : '' ?>" />
             </div>
           </div>
 
@@ -363,17 +352,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             var branchSelect = document.getElementById('staffBranch');
             function filterBranches() {
               var companyId = companySelect.value;
+              var foundMatch = false;
               Array.from(branchSelect.options).forEach(function(opt) {
                 if (!opt.value) return; // skip placeholder
-                if (!companyId || opt.getAttribute('data-company') === companyId) {
-                  opt.style.display = '';
+                var optCompanyId = opt.getAttribute('data-company');
+                if (!companyId || optCompanyId === companyId) {
+                  opt.hidden = false;
+                  opt.disabled = false;
+                  if (opt.selected) foundMatch = true;
                 } else {
-                  opt.style.display = 'none';
+                  opt.hidden = true;
+                  opt.disabled = true;
                   if (opt.selected) opt.selected = false;
                 }
               });
-              // If no branch is selected after filter, reset to placeholder
-              if (!branchSelect.value) branchSelect.selectedIndex = 0;
+              // If current selected branch was hidden, reset to placeholder
+              if (!foundMatch && branchSelect.value && companyId) {
+                branchSelect.selectedIndex = 0;
+              }
             }
             companySelect.addEventListener('change', filterBranches);
             // Initial filter on page load (for edit mode)
@@ -384,7 +380,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           <div class="col-12">
             <div class="d-flex align-items-center gap-2">
               <label class="form-label mb-0 text-nowrap" style="min-width: 100px;" for="staffUsername">Username</label>
-              <input class="form-control form-control-sm" id="staffUsername" name="username" type="text" placeholder="Enter username" required value="<?= $editStaffUser ? htmlspecialchars($editStaffUser['username']) : '' ?>" <?= $editStaffUser ? 'readonly' : '' ?> />
+              <input class="form-control form-control-sm" id="staffUsername" name="username" type="text" placeholder="Enter username" required value="<?= $editStaffUser ? htmlspecialchars($editStaffUser['username']) : '' ?>" />
             </div>
           </div>
 

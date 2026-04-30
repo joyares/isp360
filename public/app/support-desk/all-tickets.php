@@ -193,7 +193,7 @@ $filterStatusId = !$showAllStatuses && $rawFilterStatus !== '' ? (int) $rawFilte
 
 if ($showAllStatuses) {
   if ($filterFromDate === '') {
-    $filterFromDate = $oneMonthAgoDate;
+    $filterFromDate = $todayDate;
   }
   if ($filterToDate === '') {
     $filterToDate = $todayDate;
@@ -217,11 +217,19 @@ if ($filterFromDate !== '' && $filterToDate !== '' && strtotime($filterFromDate)
 
 $filterPriorityId = isset($_GET['filter_priority']) ? (int) $_GET['filter_priority'] : 0;
 $filterAssigned = isset($_GET['filter_assigned']) ? (int) $_GET['filter_assigned'] : 0;
+$filterBranchId = isset($_GET['filter_branch']) ? (int) $_GET['filter_branch'] : 0;
 
 $categories = [];
 $priorities = [];
 $ticketStatuses = [];
 $employees = [];
+$allBranches = [];
+
+try {
+    $allBranches = $pdo->query('SELECT branch_id, branch_name FROM branches WHERE status = 1 ORDER BY branch_name ASC')->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {
+    $allBranches = [];
+}
 
 try {
     $categories = $pdo->query(
@@ -298,6 +306,11 @@ if ($filterPriorityId > 0) {
 if ($filterAssigned > 0) {
     $where[] = 't.assigned_employee_id = :filter_assigned';
     $params[':filter_assigned'] = $filterAssigned;
+}
+
+if ($filterBranchId > 0) {
+    $where[] = 't.branch_id = :filter_branch';
+    $params[':filter_branch'] = $filterBranchId;
 }
 
 if ($filterFromDate !== '' && $filterToDate !== '') {
@@ -542,45 +555,60 @@ require '../../includes/header.php';
           <div class="col-auto d-flex align-items-center justify-content-end gap-2">
           <input type="hidden" id="filterFromDate" name="filter_from_date" value="<?= htmlspecialchars($filterFromDate) ?>">
           <input type="hidden" id="filterToDate" name="filter_to_date" value="<?= htmlspecialchars($filterToDate) ?>">
-          <input class="form-control mb-5 datetimepicker" id="dateRangePicker" type="text" placeholder="dd/mm/yy to dd/mm/yy"
-            data-options='{"mode":"range","dateFormat":"d/m/y","disableMobile":true,"position":"below","predefinedRanges":["today",{"last_7_days":"Last week"}]}' />
+          <input class="form-control mb-5 js-flatpickr-range" id="supportDeskDateRangePicker" type="text" placeholder="dd/mm/yyyy to dd/mm/yyyy"
+            value="<?= (new DateTime($filterFromDate))->format('d/m/Y') ?> to <?= (new DateTime($filterToDate))->format('d/m/Y') ?>"
+            data-options='{"mode":"range","dateFormat":"d/m/Y","disableMobile":true,"position":"below"}' />
           <link rel="stylesheet" href="<?= $appBasePath ?>/vendors/flatpickr/flatpickr.min.css">
           <script src="<?= $appBasePath ?>/vendors/flatpickr/flatpickr.min.js"></script>
           <script>
-            window.addEventListener('DOMContentLoaded', function () {
-              var picker = document.getElementById('dateRangePicker');
-              var from = document.getElementById('filterFromDate');
-              var to = document.getElementById('filterToDate');
-              var opts = picker.getAttribute('data-options');
-              var options = opts ? JSON.parse(opts) : {};
-              // Set initial value
-              if (from.value && to.value) {
-                var f = from.value.split('-').reverse().join('/');
-                var t = to.value.split('-').reverse().join('/');
-                picker.value = f + ' to ' + t;
-              } else {
-                // If empty, set to today
-                var today = new Date();
-                var day = String(today.getDate()).padStart(2, '0');
-                var month = String(today.getMonth() + 1).padStart(2, '0');
-                var year = today.getFullYear();
-                var formatted = day + '/' + month + '/' + year;
-                picker.value = formatted + ' to ' + formatted;
-                from.value = year + '-' + month + '-' + day;
-                to.value = year + '-' + month + '-' + day;
-              }
-              flatpickr(picker, Object.assign(options, {
-                onChange: function(selectedDates, dateStr, instance) {
-                  if (selectedDates.length === 2) {
-                    var f = selectedDates[0];
-                    var t = selectedDates[1];
-                    from.value = f.toISOString().slice(0,10);
-                    to.value = t.toISOString().slice(0,10);
-                    document.getElementById('filterForm').submit();
-                  }
+            (function() {
+              window.addEventListener('DOMContentLoaded', function () {
+                var picker = document.getElementById('supportDeskDateRangePicker');
+                var from = document.getElementById('filterFromDate');
+                var to = document.getElementById('filterToDate');
+                var opts = picker.getAttribute('data-options');
+                var options = opts ? JSON.parse(opts) : {};
+
+                var serverToday = '<?= $todayDate ?>';
+                var defaultDates = (from.value && to.value) ? [from.value, to.value] : [serverToday, serverToday];
+
+                function supportDeskFormatDisplay(date) {
+                  if (!date) return '';
+                  var d = date.getDate().toString().padStart(2, '0');
+                  var m = (date.getMonth() + 1).toString().padStart(2, '0');
+                  var y = date.getFullYear();
+                  return d + '/' + m + '/' + y;
                 }
-              }));
-            });
+
+                function supportDeskFormatISO(date) {
+                  if (!date) return '';
+                  var y = date.getFullYear();
+                  var m = (date.getMonth() + 1).toString().padStart(2, '0');
+                  var d = date.getDate().toString().padStart(2, '0');
+                  return y + '-' + m + '-' + d;
+                }
+
+                flatpickr(picker, Object.assign(options, {
+                  defaultDate: defaultDates,
+                  formatDate: function(date) {
+                    return supportDeskFormatDisplay(date);
+                  },
+                  onReady: function(selectedDates, dateStr, instance) {
+                    if (selectedDates.length === 2) {
+                      picker.value = supportDeskFormatDisplay(selectedDates[0]) + ' to ' + supportDeskFormatDisplay(selectedDates[1]);
+                    }
+                  },
+                  onChange: function(selectedDates) {
+                    if (selectedDates.length === 2) {
+                      from.value = supportDeskFormatISO(selectedDates[0]);
+                      to.value = supportDeskFormatISO(selectedDates[1]);
+                      picker.value = supportDeskFormatDisplay(selectedDates[0]) + ' to ' + supportDeskFormatDisplay(selectedDates[1]);
+                      document.getElementById('filterForm').submit();
+                    }
+                  }
+                }));
+              });
+            })();
           </script>
           <?php
             $statusLabel = $showAllStatuses ? 'All' : 'Status';
@@ -602,7 +630,7 @@ require '../../includes/header.php';
                 $allStatusQuery = $_GET;
                 unset($allStatusQuery['filter_date']);
                 $allStatusQuery['filter_status'] = 'all';
-                $allStatusQuery['filter_from_date'] = $oneMonthAgoDate;
+                $allStatusQuery['filter_from_date'] = $todayDate;
                 $allStatusQuery['filter_to_date'] = $todayDate;
               ?>
               <li>
@@ -685,6 +713,33 @@ require '../../includes/header.php';
                   <a class="dropdown-item <?= $filterAssigned === (int) $item['admin_user_id'] ? 'active' : '' ?>"
                     href="<?= $appBasePath ?>/app/support-desk/all-tickets.php?<?= http_build_query(array_merge($_GET, ['filter_assigned' => (int) $item['admin_user_id']])) ?>">
                     <?= htmlspecialchars($label) ?>
+                  </a>
+                </li>
+              <?php endforeach; ?>
+            </ul>
+          </div>
+          <?php
+            $branchLabel = 'Branch';
+            foreach ($allBranches as $_b) {
+              if ((int) $_b['branch_id'] === $filterBranchId) {
+                $branchLabel = htmlspecialchars((string) $_b['branch_name']);
+                break;
+              }
+            }
+          ?>
+          <div class="dropdown">
+            <button class="btn btn-primary btn-sm dropdown-toggle py-1 px-2" type="button" id="filterBranchDropdown" data-bs-toggle="dropdown" aria-expanded="false" style="font-size:0.75rem;">
+              <?= $branchLabel ?>
+            </button>
+            <ul class="dropdown-menu" aria-labelledby="filterBranchDropdown">
+              <li>
+                <a class="dropdown-item <?= $filterBranchId === 0 ? 'active' : '' ?>" href="<?= $appBasePath ?>/app/support-desk/all-tickets.php?<?= http_build_query(array_merge($_GET, ['filter_branch' => 0])) ?>">Branch</a>
+              </li>
+              <?php foreach ($allBranches as $item): ?>
+                <li>
+                  <a class="dropdown-item <?= $filterBranchId === (int) $item['branch_id'] ? 'active' : '' ?>"
+                    href="<?= $appBasePath ?>/app/support-desk/all-tickets.php?<?= http_build_query(array_merge($_GET, ['filter_branch' => (int) $item['branch_id']])) ?>">
+                    <?= htmlspecialchars((string) $item['branch_name']) ?>
                   </a>
                 </li>
               <?php endforeach; ?>
