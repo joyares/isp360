@@ -30,14 +30,15 @@ if (isset($_GET['ajax_get_serials_checkout'])) {
 }
 if (isset($_GET['ajax_get_serials_checkin'])) {
     $pid = (int)$_GET['pid'];
-    $bid = (int)($_GET['bid'] ?? 0);
     $stmt = $pdo->prepare('
-        SELECT sn.serial_id, sn.serial_ref 
+        SELECT DISTINCT sn.serial_id, sn.serial_ref 
         FROM inventory_serial_numbers sn
-        JOIN inventory_stock_invoices si ON sn.invoice_id = si.invoice_id
-        WHERE sn.product_id = :p AND sn.status = 2 AND si.branch_id = :b
+        JOIN inventory_operation_serials ios ON sn.serial_id = ios.serial_id
+        JOIN inventory_operation_items ioi ON ios.op_item_id = ioi.op_item_id
+        JOIN inventory_operations io ON ioi.op_id = io.op_id
+        WHERE sn.product_id = :p AND sn.status = 2 AND io.customer_id = :cid
     ');
-    $stmt->execute(['p' => $pid, 'b' => $bid]);
+    $stmt->execute(['p' => $pid, 'cid' => $customerId]);
     echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
     exit;
 }
@@ -107,20 +108,13 @@ if (!$customer) {
 
 $branches = $pdo->query('SELECT branch_id, branch_name FROM branches WHERE status = 1 ORDER BY branch_name ASC')->fetchAll(PDO::FETCH_ASSOC);
 
-// Find customer's branch ID from the branch name
-$customerBranchId = 0;
-if (!empty($customer['branch'])) {
-    foreach ($branches as $b) {
-        if (trim(strtolower((string)$b['branch_name'])) === trim(strtolower((string)$customer['branch']))) {
-            $customerBranchId = (int)$b['branch_id'];
-            break;
-        }
-    }
-}
+// Resolve customer's branch ID
+$customerBranchId = (int)($customer['branch_id'] ?? 0);
 
-// Fetch products that have available serials (status=1) in this branch
+// Products for Checkout (Status 1 in Branch)
+$checkoutProducts = [];
 if ($customerBranchId > 0) {
-    $productsStmt = $pdo->prepare('
+    $stmt = $pdo->prepare('
         SELECT DISTINCT p.product_id, p.product_name 
         FROM inventory_products p
         JOIN inventory_serial_numbers sn ON p.product_id = sn.product_id
@@ -128,12 +122,24 @@ if ($customerBranchId > 0) {
         WHERE sn.status = 1 AND si.branch_id = :bid AND p.status = 1
         ORDER BY p.product_name ASC
     ');
-    $productsStmt->execute(['bid' => $customerBranchId]);
-    $products = $productsStmt->fetchAll(PDO::FETCH_ASSOC);
-} else {
-    // If no branch matched, show no products or handle gracefully
-    $products = []; 
+    $stmt->execute(['bid' => $customerBranchId]);
+    $checkoutProducts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
+
+// Products for Checkin (Status 2 held by this Customer)
+$checkinProductsStmt = $pdo->prepare('
+    SELECT DISTINCT p.product_id, p.product_name 
+    FROM inventory_products p
+    JOIN inventory_serial_numbers sn ON p.product_id = sn.product_id
+    JOIN inventory_operation_serials ios ON sn.serial_id = ios.serial_id
+    JOIN inventory_operation_items ioi ON ios.op_item_id = ioi.op_item_id
+    JOIN inventory_operations io ON ioi.op_id = io.op_id
+    WHERE sn.status = 2 AND io.customer_id = :cid AND p.status = 1
+    ORDER BY p.product_name ASC
+');
+$checkinProductsStmt->execute(['cid' => $customerId]);
+$checkinProducts = $checkinProductsStmt->fetchAll(PDO::FETCH_ASSOC);
+
 
 // Fetch Tickets
 $ticketsStmt = $pdo->prepare('
@@ -209,6 +215,45 @@ foreach ($allCustomerNotesRaw as $note) {
     $allCustomerNotes[$tid]['notes'][] = $note;
 }
 
+// Merge events for Timeline
+$timelineEvents = [];
+
+// 1. Add Tickets
+foreach ($customerTickets as $t) {
+    $timelineEvents[] = [
+        'type' => 'ticket',
+        'title' => 'Created Ticket: ' . $t['ticket_no'],
+        'description' => $t['issue_details'] ?? '',
+        'date' => $t['created_at'],
+        'status' => $t['status_name'],
+        'icon' => 'fa-ticket-alt',
+        'color' => 'primary',
+        'badge' => $t['status_name'],
+        'badge_color' => 'info'
+    ];
+}
+
+// 2. Add Assets
+foreach ($assetHistory as $a) {
+    $isCheckout = $a['op_type'] === 'checkout';
+    $timelineEvents[] = [
+        'type' => 'asset',
+        'title' => ($isCheckout ? 'Checked out' : 'Returned') . ' Asset: ' . $a['product_name'],
+        'description' => 'Quantity: ' . $a['quantity'] . ( !empty($a['serials']) ? ' (Serials: ' . $a['serials'] . ')' : '' ),
+        'date' => $a['created_at'],
+        'status' => ucfirst($a['op_type']),
+        'icon' => $isCheckout ? 'fa-box' : 'fa-undo',
+        'color' => $isCheckout ? 'warning' : 'success',
+        'badge' => ucfirst($a['op_type']),
+        'badge_color' => $isCheckout ? 'primary' : 'success'
+    ];
+}
+
+// Sort by date descending
+usort($timelineEvents, function($a, $b) {
+    return strtotime($b['date']) <=> strtotime($a['date']);
+});
+
 require '../../includes/header.php';
 ?>
 <div class="card mb-3">
@@ -245,6 +290,18 @@ require '../../includes/header.php';
                     <div class="px-3 py-2">
                       <?php
                       $d = fn($v) => htmlspecialchars((string)($v ?? ''));
+                      
+                      // Resolve branch name for display
+                      $displayBranchName = '-';
+                      if ($customerBranchId > 0) {
+                          foreach ($branches as $b) {
+                              if ((int)$b['branch_id'] === $customerBranchId) {
+                                  $displayBranchName = $b['branch_name'];
+                                  break;
+                              }
+                          }
+                      }
+
                       $rows = [
                         ['icon' => 'fa-user',            'label' => 'Full Name',        'value' => $customer['full_name'] ?? $customer['username']],
                         ['icon' => 'fa-id-badge',        'label' => 'Radious ID',       'value' => $customer['radious_id'] ?? null],
@@ -254,7 +311,7 @@ require '../../includes/header.php';
                         ['icon' => 'fa-map-marker-alt',  'label' => 'Address',          'value' => $customer['address'] ?? null],
                         ['icon' => 'fa-layer-group',     'label' => 'Area',             'value' => $customer['area'] ?? null],
                         ['icon' => 'fa-map-pin',         'label' => 'Sub Area',         'value' => $customer['sub_area'] ?? null],
-                        ['icon' => 'fa-code-branch',     'label' => 'Branch',           'value' => $customer['branch'] ?? null],
+                        ['icon' => 'fa-code-branch',     'label' => 'Branch',           'value' => $displayBranchName],
                         ['icon' => 'fa-box',             'label' => 'Package',          'value' => $customer['package_id'] ?? null],
                         ['icon' => 'fa-calendar-check',  'label' => 'Activate Date',    'value' => $customer['package_activate_date'] ?? null],
                         ['icon' => 'fa-calendar-times',  'label' => 'Expire Date',      'value' => $customer['package_expire_date'] ?? null],
@@ -339,168 +396,46 @@ require '../../includes/header.php';
                 <div class="tab-content">
                   <div class="card-body bg-body-tertiary tab-pane active" id="timeline" role="tabpanel" aria-labelledby="contact-timeline-tab">
                     <div class="timeline-vertical py-0">
-                      <div class="timeline-item timeline-item-start mb-3">
-                        <div class="timeline-icon icon-item icon-item-lg text-primary border-300"><span class="fs-8 fas fa-envelope"></span></div>
-                        <div class="row">
-                          <div class="col-lg-6 timeline-item-time">
-                            <div>
-                              <h6 class="mb-0 text-700">2022</h6>
-                              <p class="fs-11 text-500 font-sans-serif">25 September</p>
+                      <?php if (empty($timelineEvents)): ?>
+                        <div class="text-center py-4 text-500">No activity recorded yet.</div>
+                      <?php else: ?>
+                        <?php foreach ($timelineEvents as $index => $event): 
+                          $isEnd = ($index % 2 !== 0);
+                          $eventDate = new DateTime($event['date']);
+                        ?>
+                          <div class="timeline-item <?= $isEnd ? 'timeline-item-end' : 'timeline-item-start' ?> mb-3">
+                            <div class="timeline-icon icon-item icon-item-lg text-<?= $event['color'] ?> border-300">
+                              <span class="fs-8 fas <?= $event['icon'] ?>"></span>
                             </div>
-                          </div>
-                          <div class="col-lg-6">
-                            <div class="timeline-item-content arrow-bg-white">
-                              <div class="timeline-item-card bg-white dark__bg-1100"><a href="tickets-preview.php">
-                                  <h5 class="mb-2 hover-primary">Got a new television #377</h5>
-                                </a>
-                                <p class="fs-10 border-bottom mb-3 pb-4 text-600">Thank you for replacing my broken television with a new one.</p>
-                                <div class="d-flex flex-wrap pt-2">
-                                  <h6 class="mb-0 text-600 lh-base"><span class="far fa-clock me-1"></span>10:28 AM</h6>
-                                  <div class="d-flex align-items-center ms-auto me-2 me-sm-x1 me-xl-2 me-xxl-x1">
-                                    <div class="dot me-0 me-sm-2 me-xl-0 me-xxl-2 bg-danger" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Urgent"></div>
-                                    <h6 class="mb-0 text-700 d-none d-sm-block d-xl-none d-xxl-block">Urgent</h6>
-                                  </div><small class="badge rounded badge-subtle-success false">Recent</small>
+                            <div class="row">
+                              <div class="col-lg-6 timeline-item-time">
+                                <div>
+                                  <h6 class="mb-0 text-700"><?= $eventDate->format('Y') ?></h6>
+                                  <p class="fs-11 text-500 font-sans-serif"><?= $eventDate->format('d F') ?></p>
+                                </div>
+                              </div>
+                              <div class="col-lg-6">
+                                <div class="timeline-item-content arrow-bg-white">
+                                  <div class="timeline-item-card bg-white dark__bg-1100">
+                                    <h5 class="mb-2"><?= htmlspecialchars((string)($event['title'] ?? '')) ?></h5>
+                                    <p class="fs-10 border-bottom mb-3 pb-4 text-600">
+                                      <?= htmlspecialchars((string)($event['description'] ?? '')) ?>
+                                    </p>
+                                    <div class="d-flex flex-wrap pt-2">
+                                      <h6 class="mb-0 text-600 lh-base"><span class="far fa-clock me-1"></span><?= $eventDate->format('h:i A') ?></h6>
+                                      <?php if (!empty($event['badge'])): ?>
+                                        <div class="ms-auto">
+                                          <small class="badge rounded badge-subtle-<?= $event['badge_color'] ?>"><?= htmlspecialchars($event['badge']) ?></small>
+                                        </div>
+                                      <?php endif; ?>
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
                             </div>
                           </div>
-                        </div>
-                      </div>
-                      <div class="timeline-item timeline-item-end mb-3">
-                        <div class="timeline-icon icon-item icon-item-lg text-primary border-300"><span class="fs-8 fas fa-envelope"></span></div>
-                        <div class="row">
-                          <div class="col-lg-6 timeline-item-time">
-                            <div>
-                              <h6 class="mb-0 text-700">2022</h6>
-                              <p class="fs-11 text-500 font-sans-serif">23 September</p>
-                            </div>
-                          </div>
-                          <div class="col-lg-6">
-                            <div class="timeline-item-content arrow-bg-white">
-                              <div class="timeline-item-card bg-white dark__bg-1100"><a href="tickets-preview.php">
-                                  <h5 class="mb-2 hover-primary">Subscription Issue #362</h5>
-                                </a>
-                                <p class="fs-10 border-bottom mb-3 pb-4 text-600">On November 2, 2022, your membership at Falcon is going to expire. We really hope that you have benefited from your membership.</p>
-                                <div class="d-flex flex-wrap pt-2">
-                                  <h6 class="mb-0 text-600 lh-base"><span class="far fa-clock me-1"></span>09:26 PM</h6>
-                                  <div class="d-flex align-items-center ms-auto me-2 me-sm-x1 me-xl-2 me-xxl-x1">
-                                    <div class="dot me-0 me-sm-2 me-xl-0 me-xxl-2 bg-info" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Low"></div>
-                                    <h6 class="mb-0 text-700 d-none d-sm-block d-xl-none d-xxl-block">Low</h6>
-                                  </div><small class="badge rounded badge-subtle-secondary dark__bg-1000">Closed</small>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <div class="timeline-item timeline-item-start mb-3">
-                        <div class="timeline-icon icon-item icon-item-lg text-primary border-300"><span class="fs-8 fas fa-envelope"></span></div>
-                        <div class="row">
-                          <div class="col-lg-6 timeline-item-time">
-                            <div>
-                              <h6 class="mb-0 text-700">2022</h6>
-                              <p class="fs-11 text-500 font-sans-serif">20 September</p>
-                            </div>
-                          </div>
-                          <div class="col-lg-6">
-                            <div class="timeline-item-content arrow-bg-white">
-                              <div class="timeline-item-card bg-white dark__bg-1100"><a href="tickets-preview.php">
-                                  <h5 class="mb-2 hover-primary">Received a broken TV #345</h5>
-                                </a>
-                                <p class="fs-10 border-bottom mb-3 pb-4 text-600">My television from your website was delivered with a cracked screen. I need assistance getting a refund or a replacement.</p>
-                                <div class="d-flex flex-wrap pt-2">
-                                  <h6 class="mb-0 text-600 lh-base"><span class="far fa-clock me-1"></span>01:06 PM</h6>
-                                  <div class="d-flex align-items-center ms-auto me-2 me-sm-x1 me-xl-2 me-xxl-x1">
-                                    <div class="dot me-0 me-sm-2 me-xl-0 me-xxl-2 bg-danger" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Urgent"></div>
-                                    <h6 class="mb-0 text-700 d-none d-sm-block d-xl-none d-xxl-block">Urgent</h6>
-                                  </div><small class="badge rounded badge-subtle-success false">Recent</small>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <div class="timeline-item timeline-item-end mb-3">
-                        <div class="timeline-icon icon-item icon-item-lg text-primary border-300"><span class="fs-8 fas fa-envelope"></span></div>
-                        <div class="row">
-                          <div class="col-lg-6 timeline-item-time">
-                            <div>
-                              <h6 class="mb-0 text-700">2022</h6>
-                              <p class="fs-11 text-500 font-sans-serif">03 September</p>
-                            </div>
-                          </div>
-                          <div class="col-lg-6">
-                            <div class="timeline-item-content arrow-bg-white">
-                              <div class="timeline-item-card bg-white dark__bg-1100"><a href="tickets-preview.php">
-                                  <h5 class="mb-2 hover-primary">Payment failed #324</h5>
-                                </a>
-                                <p class="fs-10 border-bottom mb-3 pb-4 text-600">Your payment failed while I tried to make a payment on your website, I was told. My card was, however, billed.</p>
-                                <div class="d-flex flex-wrap pt-2">
-                                  <h6 class="mb-0 text-600 lh-base"><span class="far fa-clock me-1"></span>11:06 PM</h6>
-                                  <div class="d-flex align-items-center ms-auto me-2 me-sm-x1 me-xl-2 me-xxl-x1">
-                                    <div class="dot me-0 me-sm-2 me-xl-0 me-xxl-2 bg-primary" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Medium"></div>
-                                    <h6 class="mb-0 text-700 d-none d-sm-block d-xl-none d-xxl-block">Medium</h6>
-                                  </div><small class="badge rounded badge-subtle-secondary dark__bg-1000">Closed</small>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <div class="timeline-item timeline-item-start mb-3">
-                        <div class="timeline-icon icon-item icon-item-lg text-primary border-300"><span class="fs-8 fas fa-envelope"></span></div>
-                        <div class="row">
-                          <div class="col-lg-6 timeline-item-time">
-                            <div>
-                              <h6 class="mb-0 text-700">2022</h6>
-                              <p class="fs-11 text-500 font-sans-serif">24 August</p>
-                            </div>
-                          </div>
-                          <div class="col-lg-6">
-                            <div class="timeline-item-content arrow-bg-white">
-                              <div class="timeline-item-card bg-white dark__bg-1100"><a href="tickets-preview.php">
-                                  <h5 class="mb-2 hover-primary">Password change #234</h5>
-                                </a>
-                                <p class="fs-10 border-bottom mb-3 pb-4 text-600">I must modify my password. If I make a modification, will I lose access to my account? I have a lot of items in my cart and don't want to go looking for them again.</p>
-                                <div class="d-flex flex-wrap pt-2">
-                                  <h6 class="mb-0 text-600 lh-base"><span class="far fa-clock me-1"></span>10:08 AM</h6>
-                                  <div class="d-flex align-items-center ms-auto me-2 me-sm-x1 me-xl-2 me-xxl-x1">
-                                    <div class="dot me-0 me-sm-2 me-xl-0 me-xxl-2 bg-danger" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Urgent"></div>
-                                    <h6 class="mb-0 text-700 d-none d-sm-block d-xl-none d-xxl-block">Urgent</h6>
-                                  </div><small class="badge rounded badge-subtle-secondary dark__bg-1000">Closed</small>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <div class="timeline-item timeline-item-end mb-0">
-                        <div class="timeline-icon icon-item icon-item-lg text-primary border-300"><span class="fs-8 fas fa-envelope"></span></div>
-                        <div class="row">
-                          <div class="col-lg-6 timeline-item-time">
-                            <div>
-                              <h6 class="mb-0 text-700">2022</h6>
-                              <p class="fs-11 text-500 font-sans-serif">20 August</p>
-                            </div>
-                          </div>
-                          <div class="col-lg-6">
-                            <div class="timeline-item-content arrow-bg-white">
-                              <div class="timeline-item-card bg-white dark__bg-1100"><a href="tickets-preview.php">
-                                  <h5 class="mb-2 hover-primary">Email Address change #202</h5>
-                                </a>
-                                <p class="fs-10 border-bottom mb-3 pb-4 text-600">My email address needs to be updated. I'm curious if changing it will result in me losing access to my account. I've put a lot of items in my shopping basket and don't want to search for them again.</p>
-                                <div class="d-flex flex-wrap pt-2">
-                                  <h6 class="mb-0 text-600 lh-base"><span class="far fa-clock me-1"></span>12:26 PM</h6>
-                                  <div class="d-flex align-items-center ms-auto me-2 me-sm-x1 me-xl-2 me-xxl-x1">
-                                    <div class="dot me-0 me-sm-2 me-xl-0 me-xxl-2 bg-info" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Low"></div>
-                                    <h6 class="mb-0 text-700 d-none d-sm-block d-xl-none d-xxl-block">Low</h6>
-                                  </div><small class="badge rounded badge-subtle-secondary dark__bg-1000">Closed</small>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+                        <?php endforeach; ?>
+                      <?php endif; ?>
                     </div>
                   </div>
                   <div class="card-body tab-pane p-0" id="tickets" role="tabpanel" aria-labelledby="contact-tickets-tab">
@@ -686,7 +621,7 @@ require '../../includes/header.php';
                                         <?php endif; ?>
                                       <?php endforeach; ?>
                                     <?php else: ?>
-                                      <option value="0" selected><?= htmlspecialchars($customer['branch'] ?? 'No Branch Assigned') ?></option>
+                                      <option value="0" selected>No Branch Assigned</option>
                                     <?php endif; ?>
                                   </select>
                                 </div>
@@ -694,7 +629,7 @@ require '../../includes/header.php';
                                   <label class="form-label fs-11 mb-1">Product</label>
                                   <select class="form-select form-select-sm js-asset-prod" name="product_id" required data-type="checkout">
                                     <option value="" disabled selected>Select Product</option>
-                                    <?php foreach($products as $p): ?>
+                                    <?php foreach($checkoutProducts as $p): ?>
                                       <option value="<?= $p['product_id'] ?>"><?= htmlspecialchars($p['product_name']) ?></option>
                                     <?php endforeach; ?>
                                   </select>
@@ -726,7 +661,7 @@ require '../../includes/header.php';
                                         <?php endif; ?>
                                       <?php endforeach; ?>
                                     <?php else: ?>
-                                      <option value="0" selected><?= htmlspecialchars($customer['branch'] ?? 'No Branch Assigned') ?></option>
+                                      <option value="0" selected>No Branch Assigned</option>
                                     <?php endif; ?>
                                   </select>
                                 </div>
@@ -734,7 +669,7 @@ require '../../includes/header.php';
                                   <label class="form-label fs-11 mb-1">Product</label>
                                   <select class="form-select form-select-sm js-asset-prod" name="product_id" required data-type="checkin">
                                     <option value="" disabled selected>Select Product</option>
-                                    <?php foreach($products as $p): ?>
+                                    <?php foreach($checkinProducts as $p): ?>
                                       <option value="<?= $p['product_id'] ?>"><?= htmlspecialchars($p['product_name']) ?></option>
                                     <?php endforeach; ?>
                                   </select>
@@ -935,13 +870,6 @@ function copyToClipboard(text) {
     });
 }
 </script>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
 <?php
 require '../../includes/footer.php';
 ?>

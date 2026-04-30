@@ -28,8 +28,14 @@ $conditions = [];
 $params = [];
 
 if ($search !== '') {
-    $conditions[] = '(c.username LIKE :q OR c.full_name LIKE :q OR c.phone_no LIKE :q OR c.email LIKE :q OR c.radious_id LIKE :q OR c.nid LIKE :q OR c.address LIKE :q)';
-    $params[':q'] = '%' . $search . '%';
+    $searchFields = ['c.username', 'c.full_name', 'c.phone_no', 'c.email', 'c.radious_id', 'c.nid', 'c.address'];
+    $searchConds = [];
+    foreach ($searchFields as $idx => $field) {
+        $pName = ':q' . $idx;
+        $searchConds[] = "$field LIKE $pName";
+        $params[$pName] = '%' . $search . '%';
+    }
+    $conditions[] = '(' . implode(' OR ', $searchConds) . ')';
 }
 
 if ($statusFilter === '1') {
@@ -57,8 +63,9 @@ if ($perPage === 'all') {
 }
 
 $listStmt = $pdo->prepare(
-    "SELECT c.*
+    "SELECT c.*, b.branch_name
      FROM customers c
+     LEFT JOIN branches b ON c.branch_id = b.branch_id
      $where
      ORDER BY c.customer_id DESC
      $limitClause"
@@ -223,7 +230,7 @@ require '../../includes/header.php';
                     <span class="text-500">/</span><?= htmlspecialchars((string)$c['sub_area']) ?>
                   <?php endif; ?>
                 </td>
-                <td class="text-nowrap"><?= htmlspecialchars((string)($c['branch'] ?? '-')) ?></td>
+                <td class="text-nowrap"><?= htmlspecialchars((string)($c['branch_name'] ?? '-')) ?></td>
                 <td class="text-nowrap"><?= htmlspecialchars((string)($c['package_id'] ?? '-')) ?></td>
                 <td class="text-nowrap"><?= htmlspecialchars((string)($c['package_activate_date'] ?? '-')) ?></td>
                 <td class="text-nowrap"><?= htmlspecialchars((string)($c['package_expire_date'] ?? '-')) ?></td>

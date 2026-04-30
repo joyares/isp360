@@ -37,8 +37,11 @@ $formData = [
     'payment' => '',
     'invoices' => '',
     'notes' => '',
-    'branch' => '',
+    'branch_id' => '',
 ];
+
+$branchesStmt = $pdo->query('SELECT branch_id, branch_name FROM branches WHERE status = 1 ORDER BY branch_name ASC');
+$allBranches = $branchesStmt ? $branchesStmt->fetchAll(PDO::FETCH_ASSOC) : [];
 
 $alert = null;
 
@@ -100,7 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     payment = :payment,
                     invoices = :invoices,
                     notes = :notes,
-                    branch = :branch,
+                    branch_id = :branch_id,
                     updated_by = :updated_by
                  WHERE customer_id = :customer_id'
             );
@@ -134,7 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     payment,
                     invoices,
                     notes,
-                    branch,
+                    branch_id,
                     created_by,
                     updated_by,
                     status
@@ -162,7 +165,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     :payment,
                     :invoices,
                     :notes,
-                    :branch,
+                    :branch_id,
                     :created_by,
                     :updated_by,
                     1
@@ -197,7 +200,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->bindValue(':payment', $formData['payment'] !== '' ? $formData['payment'] : null);
         $stmt->bindValue(':invoices', $formData['invoices'] !== '' ? $formData['invoices'] : null);
         $stmt->bindValue(':notes', $formData['notes'] !== '' ? $formData['notes'] : null);
-        $stmt->bindValue(':branch', $formData['branch'] !== '' ? $formData['branch'] : null);
+        $stmt->bindValue(':branch_id', $formData['branch_id'] !== '' && $formData['branch_id'] !== '0' ? (int)$formData['branch_id'] : null);
 
         $stmt->execute();
 
@@ -343,8 +346,15 @@ require '../../includes/header.php';
         <textarea class="form-control" id="notes" name="notes" rows="2" <?= $canManageCustomers ? '' : 'disabled' ?>><?= htmlspecialchars($formData['notes']) ?></textarea>
       </div>
       <div class="col-md-4">
-        <label class="form-label" for="branch">Branch</label>
-        <input class="form-control" id="branch" name="branch" type="text" value="<?= htmlspecialchars($formData['branch']) ?>" <?= $canManageCustomers ? '' : 'disabled' ?> />
+        <label class="form-label" for="branchId">Branch</label>
+        <select class="form-select" id="branchId" name="branch_id" <?= $canManageCustomers ? '' : 'disabled' ?>>
+          <option value="">Select Branch</option>
+          <?php foreach ($allBranches as $b): ?>
+            <option value="<?= $b['branch_id'] ?>" <?= (int)$formData['branch_id'] === (int)$b['branch_id'] ? 'selected' : '' ?>>
+              <?= htmlspecialchars($b['branch_name']) ?>
+            </option>
+          <?php endforeach; ?>
+        </select>
       </div>
 
       <div class="col-12 d-flex justify-content-end gap-2 border-top pt-3 mt-1">

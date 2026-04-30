@@ -44,12 +44,15 @@ $pdo->exec(
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
 );
 
+
 if (!$ispts_has_column($pdo, 'support_tickets', 'company_id')) {
   $pdo->exec('ALTER TABLE support_tickets ADD COLUMN company_id BIGINT UNSIGNED NULL AFTER customer_id');
 }
 if (!$ispts_has_column($pdo, 'support_tickets', 'branch_id')) {
   $pdo->exec('ALTER TABLE support_tickets ADD COLUMN branch_id BIGINT UNSIGNED NULL AFTER company_id');
 }
+
+$selectedTicketId = isset($_GET['ticket_id']) ? (int) $_GET['ticket_id'] : 0;
 
 $alert = null;
 $currentPath = $_SERVER['PHP_SELF'] ?? '/app/support-desk/all-tickets.php';
@@ -160,8 +163,15 @@ $todayDate = date('Y-m-d');
 $oneMonthAgoDate = date('Y-m-d', strtotime('-1 month'));
 
 $legacyFilterDate = trim((string) ($_GET['filter_date'] ?? ''));
+
 $filterFromDate = trim((string) ($_GET['filter_from_date'] ?? ''));
 $filterToDate = trim((string) ($_GET['filter_to_date'] ?? ''));
+
+// Default: show only today's tickets if no date filter is set
+if ($filterFromDate === '' && $filterToDate === '') {
+  $filterFromDate = $todayDate;
+  $filterToDate = $todayDate;
+}
 
 if ($filterFromDate === '' && $legacyFilterDate !== '') {
   $filterFromDate = $legacyFilterDate;
@@ -296,6 +306,12 @@ if ($filterFromDate !== '' && $filterToDate !== '') {
   $params[':filter_to_date'] = $filterToDate;
 }
 
+$whereSql = implode(' AND ', $where);
+if ($selectedTicketId > 0) {
+    $whereSql = "(($whereSql) OR t.ticket_id = :selected_ticket_id_filter)";
+    $params[':selected_ticket_id_filter'] = $selectedTicketId;
+}
+
 $sql =
     'SELECT t.ticket_id,
             t.customer_id,
@@ -376,7 +392,7 @@ $sql =
      LEFT JOIN admin_users au ON au.admin_user_id = t.assigned_employee_id
     LEFT JOIN support_ticket_companies co ON co.company_id = t.company_id
     LEFT JOIN support_ticket_branches br ON br.branch_id = t.branch_id
-     WHERE ' . implode(' AND ', $where) . '
+     WHERE ' . $whereSql . '
      ORDER BY t.ticket_id DESC';
 
 $listStmt = $pdo->prepare($sql);
@@ -524,8 +540,48 @@ require '../../includes/header.php';
             </div>
           </div>
           <div class="col-auto d-flex align-items-center justify-content-end gap-2">
-          <input type="date" class="form-control form-control-sm" id="filterFromDate" name="filter_from_date" value="<?= htmlspecialchars($filterFromDate) ?>" onchange="document.getElementById('filterForm').submit();" style="width: auto;">
-          <input type="date" class="form-control form-control-sm" id="filterToDate" name="filter_to_date" value="<?= htmlspecialchars($filterToDate) ?>" onchange="document.getElementById('filterForm').submit();" style="width: auto;">
+          <input type="hidden" id="filterFromDate" name="filter_from_date" value="<?= htmlspecialchars($filterFromDate) ?>">
+          <input type="hidden" id="filterToDate" name="filter_to_date" value="<?= htmlspecialchars($filterToDate) ?>">
+          <input class="form-control mb-5 datetimepicker" id="dateRangePicker" type="text" placeholder="dd/mm/yy to dd/mm/yy"
+            data-options='{"mode":"range","dateFormat":"d/m/y","disableMobile":true,"position":"below","predefinedRanges":["today",{"last_7_days":"Last week"}]}' />
+          <link rel="stylesheet" href="<?= $appBasePath ?>/vendors/flatpickr/flatpickr.min.css">
+          <script src="<?= $appBasePath ?>/vendors/flatpickr/flatpickr.min.js"></script>
+          <script>
+            window.addEventListener('DOMContentLoaded', function () {
+              var picker = document.getElementById('dateRangePicker');
+              var from = document.getElementById('filterFromDate');
+              var to = document.getElementById('filterToDate');
+              var opts = picker.getAttribute('data-options');
+              var options = opts ? JSON.parse(opts) : {};
+              // Set initial value
+              if (from.value && to.value) {
+                var f = from.value.split('-').reverse().join('/');
+                var t = to.value.split('-').reverse().join('/');
+                picker.value = f + ' to ' + t;
+              } else {
+                // If empty, set to today
+                var today = new Date();
+                var day = String(today.getDate()).padStart(2, '0');
+                var month = String(today.getMonth() + 1).padStart(2, '0');
+                var year = today.getFullYear();
+                var formatted = day + '/' + month + '/' + year;
+                picker.value = formatted + ' to ' + formatted;
+                from.value = year + '-' + month + '-' + day;
+                to.value = year + '-' + month + '-' + day;
+              }
+              flatpickr(picker, Object.assign(options, {
+                onChange: function(selectedDates, dateStr, instance) {
+                  if (selectedDates.length === 2) {
+                    var f = selectedDates[0];
+                    var t = selectedDates[1];
+                    from.value = f.toISOString().slice(0,10);
+                    to.value = t.toISOString().slice(0,10);
+                    document.getElementById('filterForm').submit();
+                  }
+                }
+              }));
+            });
+          </script>
           <?php
             $statusLabel = $showAllStatuses ? 'All' : 'Status';
             if (!$showAllStatuses) {

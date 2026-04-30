@@ -284,7 +284,7 @@ if (!function_exists('ispts_ensure_customers_table')) {
                 payment TEXT NULL,
                 invoices TEXT NULL,
                 notes TEXT NULL,
-                branch VARCHAR(120) NULL,
+                branch_id BIGINT UNSIGNED NULL,
                 status TINYINT(1) NOT NULL DEFAULT 1,
                 created_by BIGINT UNSIGNED NULL,
                 updated_by BIGINT UNSIGNED NULL,
@@ -297,6 +297,11 @@ if (!function_exists('ispts_ensure_customers_table')) {
                 KEY idx_customers_status (status)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
         );
+
+        // Rename branch to branch_id if it exists
+        if ($hasColumn($pdo, 'customers', 'branch') && !$hasColumn($pdo, 'customers', 'branch_id')) {
+            $pdo->exec("ALTER TABLE customers CHANGE COLUMN branch branch_id BIGINT UNSIGNED NULL");
+        }
 
         $legacySafeColumns = [
             'username' => "ALTER TABLE customers ADD COLUMN username VARCHAR(120) NOT NULL DEFAULT ''",
@@ -317,7 +322,7 @@ if (!function_exists('ispts_ensure_customers_table')) {
             'payment' => "ALTER TABLE customers ADD COLUMN payment TEXT NULL",
             'invoices' => "ALTER TABLE customers ADD COLUMN invoices TEXT NULL",
             'notes' => "ALTER TABLE customers ADD COLUMN notes TEXT NULL",
-            'branch' => "ALTER TABLE customers ADD COLUMN branch VARCHAR(120) NULL",
+            'branch_id' => "ALTER TABLE customers ADD COLUMN branch_id BIGINT UNSIGNED NULL",
             'created_by' => "ALTER TABLE customers ADD COLUMN created_by BIGINT UNSIGNED NULL",
             'updated_by' => "ALTER TABLE customers ADD COLUMN updated_by BIGINT UNSIGNED NULL",
             'created_at' => "ALTER TABLE customers ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",

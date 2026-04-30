@@ -2,6 +2,15 @@
 require_once __DIR__ . '/auth.php';
 $appBasePath = ispts_resolve_app_base_path(dirname(__DIR__));
 ispts_require_authentication($appBasePath);
+
+// Set default timezone from .env or fallback to Asia/Dhaka
+if (isset($_ENV['APP_TIMEZONE'])) {
+  date_default_timezone_set($_ENV['APP_TIMEZONE']);
+} elseif (getenv('APP_TIMEZONE')) {
+  date_default_timezone_set(getenv('APP_TIMEZONE'));
+} else {
+  date_default_timezone_set('Asia/Dhaka');
+}
 ?>
 <!DOCTYPE html>
 <html data-bs-theme="light" lang="en-US" dir="ltr">
