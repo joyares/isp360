@@ -1,1 +1,25 @@
 DirectoryIndex index.php index.html
+
+Options -MultiViews
+RewriteEngine On
+RewriteBase /
+
+# 1. Admin Login specific route
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^sadmin/login\.php$ pages/authentication/split/sadmin_login.php [L,QSA]
+
+# 2. Admin generic routes
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^sadmin/(.*)$ $1 [L,QSA]
+
+# 3. Company-wise Login specific route
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^([^/]+)/login\.php$ pages/authentication/split/company_login.php?ext=$1 [L,QSA]
+
+# 4. Company-wise generic routes
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^([^/]+)/(.*)$ $2?ext=$1 [L,QSA]
