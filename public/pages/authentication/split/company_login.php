@@ -2,6 +2,10 @@
 
 declare(strict_types=1);
 
+ini_set('display_errors', '1');
+ini_set('display_startup_errors', '1');
+error_reporting(E_ALL);
+
 require_once __DIR__ . '/../../../includes/auth.php';
 
 use PDO;
@@ -27,7 +31,7 @@ $pdo = \App\Core\Database::getConnection();
 $stmt = $pdo->prepare('SELECT company, logo_icon FROM companies WHERE auth_uri_extension = :ext AND enabled = 1 AND deleted_at IS NULL LIMIT 1');
 $stmt->bindValue(':ext', $ext);
 $stmt->execute();
-$companyInfo = $stmt->fetch(PDO::FETCH_ASSOC);
+$companyInfo = $stmt->fetch(\PDO::FETCH_ASSOC);
 
 if (!$companyInfo) {
     die('Invalid or inactive Company Access URL.');
