@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../includes/auth.php';
 
+use PDO;
+
+
 $appBasePath = ispts_resolve_app_base_path(dirname(__DIR__, 3));
 
 ispts_start_session();
