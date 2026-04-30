@@ -1,6 +1,5 @@
 Options -MultiViews
 RewriteEngine On
-RewriteBase /
 
 # Admin Login specific route
 RewriteCond %{REQUEST_FILENAME} !-f

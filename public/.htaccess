@@ -2,7 +2,6 @@ DirectoryIndex index.php index.html
 
 Options -MultiViews
 RewriteEngine On
-RewriteBase /
 
 # 1. Admin Login specific route
 RewriteCond %{REQUEST_FILENAME} !-f
