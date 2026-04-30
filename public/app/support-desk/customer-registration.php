@@ -17,6 +17,10 @@ $isEdit = $customerId > 0;
 $formData = [
     'username' => '',
     'phone_no' => '',
+    'radious_id' => '',
+    'nid' => '',
+    'email' => '',
+    'full_name' => '',
     'registered_date' => date('Y-m-d'),
     'address' => '',
     'area' => '',
@@ -63,6 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
   $legacyFullName = $formData['username'] !== '' ? $formData['username'] : 'Customer';
   $legacyMobile = $formData['phone_no'] !== '' ? $formData['phone_no'] : 'N/A';
+  $actualFullName = $formData['full_name'] !== '' ? $formData['full_name'] : $legacyFullName;
 
     if (!$canManageCustomers) {
       $alert = ['type' => 'danger', 'message' => 'You do not have permission to register or update customers.'];
@@ -74,8 +79,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'UPDATE customers SET
                     username = :username,
                     phone_no = :phone_no,
-                  full_name = :full_name,
-                  mobile = :mobile,
+                    radious_id = :radious_id,
+                    nid = :nid,
+                    email = :email,
+                    full_name = :full_name,
+                    mobile = :mobile,
                     registered_date = :registered_date,
                     address = :address,
                     area = :area,
@@ -105,8 +113,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'INSERT INTO customers (
                     username,
                     phone_no,
-                  full_name,
-                  mobile,
+                    radious_id,
+                    nid,
+                    email,
+                    full_name,
+                    mobile,
                     registered_date,
                     address,
                     area,
@@ -130,6 +141,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                  ) VALUES (
                     :username,
                     :phone_no,
+                    :radious_id,
+                    :nid,
+                    :email,
                     :full_name,
                     :mobile,
                     :registered_date,
@@ -162,7 +176,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $stmt->bindValue(':username', $formData['username']);
         $stmt->bindValue(':phone_no', $formData['phone_no']);
-        $stmt->bindValue(':full_name', $legacyFullName);
+        $stmt->bindValue(':radious_id', $formData['radious_id'] !== '' ? $formData['radious_id'] : null);
+        $stmt->bindValue(':nid', $formData['nid'] !== '' ? $formData['nid'] : null);
+        $stmt->bindValue(':email', $formData['email'] !== '' ? $formData['email'] : null);
+        $stmt->bindValue(':full_name', $actualFullName);
         $stmt->bindValue(':mobile', $legacyMobile);
         $stmt->bindValue(':registered_date', $formData['registered_date']);
         $stmt->bindValue(':address', $formData['address'] !== '' ? $formData['address'] : null);
@@ -230,6 +247,10 @@ require '../../includes/header.php';
   <div class="card-body">
     <form class="row g-3" method="post" action="">
       <div class="col-md-4">
+        <label class="form-label" for="fullName">Full Name</label>
+        <input class="form-control" id="fullName" name="full_name" type="text" value="<?= htmlspecialchars($formData['full_name']) ?>" <?= $canManageCustomers ? '' : 'disabled' ?> />
+      </div>
+      <div class="col-md-4">
         <label class="form-label" for="username">Username</label>
         <input class="form-control" id="username" name="username" type="text" value="<?= htmlspecialchars($formData['username']) ?>" required <?= $canManageCustomers ? '' : 'disabled' ?> />
       </div>
@@ -237,6 +258,20 @@ require '../../includes/header.php';
         <label class="form-label" for="phoneNo">Phone No</label>
         <input class="form-control" id="phoneNo" name="phone_no" type="text" value="<?= htmlspecialchars($formData['phone_no']) ?>" required <?= $canManageCustomers ? '' : 'disabled' ?> />
       </div>
+
+      <div class="col-md-4">
+        <label class="form-label" for="email">Email</label>
+        <input class="form-control" id="email" name="email" type="email" value="<?= htmlspecialchars($formData['email']) ?>" <?= $canManageCustomers ? '' : 'disabled' ?> />
+      </div>
+      <div class="col-md-4">
+        <label class="form-label" for="radiousId">Radious ID</label>
+        <input class="form-control" id="radiousId" name="radious_id" type="text" value="<?= htmlspecialchars($formData['radious_id']) ?>" <?= $canManageCustomers ? '' : 'disabled' ?> />
+      </div>
+      <div class="col-md-4">
+        <label class="form-label" for="nid">NID</label>
+        <input class="form-control" id="nid" name="nid" type="text" value="<?= htmlspecialchars($formData['nid']) ?>" <?= $canManageCustomers ? '' : 'disabled' ?> />
+      </div>
+
       <div class="col-md-4">
         <label class="form-label" for="registeredDate">Registered Date</label>
         <input class="form-control" id="registeredDate" name="registered_date" type="date" value="<?= htmlspecialchars($formData['registered_date']) ?>" required <?= $canManageCustomers ? '' : 'disabled' ?> />

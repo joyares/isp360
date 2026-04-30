@@ -149,36 +149,29 @@ if ($adminUserId > 0) {
           : $appBasePath . '/assets/img/team/2.jpg';
         ?>
 
-        <!-- Row 1: Avatar -->
-        <div class="row align-items-center mb-3">
-          <div class="col-6 text-center">
-            <form action="" method="post" enctype="multipart/form-data">
-              <input type="hidden" name="action" value="update_avatar">
-              <div class="avatar avatar-5xl avatar-profile shadow-sm img-thumbnail rounded-circle mx-auto"
-                style="background: #fff;">
-                <div class="h-100 w-100 rounded-circle overflow-hidden position-relative">
-                  <img src="<?= $avatarSrc ?>" width="200" alt="">
-                  <input class="d-none" id="profile-image" type="file" name="profile_image" accept="image/*"
-                    onchange="this.form.submit()">
-                  <label class="mb-0 overlay-icon d-flex flex-center" for="profile-image">
-                    <span class="bg-holder overlay overlay-0"></span>
-                    <span class="z-1 text-white dark__text-white text-center fs-10">
-                      <span class="fas fa-camera"></span><span class="d-block">Update</span>
-                    </span>
-                  </label>
-                </div>
+        <!-- Avatar and Name -->
+        <div class="d-flex align-items-center mb-4">
+          <form action="" method="post" enctype="multipart/form-data" class="me-3">
+            <input type="hidden" name="action" value="update_avatar">
+            <div class="avatar avatar-5xl shadow-sm img-thumbnail rounded-circle"
+              style="background: #fff;">
+              <div class="h-100 w-100 rounded-circle overflow-hidden position-relative">
+                <img src="<?= $avatarSrc ?>" width="200" alt="">
+                <input class="d-none" id="profile-image" type="file" name="profile_image" accept="image/*"
+                  onchange="this.form.submit()">
+                <label class="mb-0 overlay-icon d-flex flex-center" for="profile-image">
+                  <span class="bg-holder overlay overlay-0"></span>
+                  <span class="z-1 text-white dark__text-white text-center fs-10">
+                    <span class="fas fa-camera"></span><span class="d-block">Update</span>
+                  </span>
+                </label>
               </div>
-            </form>
-          </div>
-          <div class="col-6"></div>
-        </div>
-
-        <!-- Row 2: Name -->
-        <div class="row mb-4">
-          <div class="col-6 text-center">
+            </div>
+          </form>
+          <div>
             <h5 class="mb-0 text-800"><?= htmlspecialchars($userData['full_name'] ?? 'User Name') ?></h5>
+            <p class="mb-0 fs-10 text-500"><?= htmlspecialchars($userData['email'] ?? '') ?></p>
           </div>
-          <div class="col-6"></div>
         </div>
 
         <!-- Row 3: Info Table -->

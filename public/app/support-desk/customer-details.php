@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 require_once '../../includes/auth.php';
+$appBasePath = ispts_resolve_app_base_path();
+ispts_require_authentication($appBasePath);
+
 use App\Core\Database;
 
 $pdo = Database::getConnection();
@@ -14,15 +17,27 @@ if ($customerId <= 0) {
 // ── ASSET AJAX HANDLERS ──────────────────────────────────────────────────────
 if (isset($_GET['ajax_get_serials_checkout'])) {
     $pid = (int)$_GET['pid'];
-    $stmt = $pdo->prepare('SELECT serial_id, serial_ref FROM inventory_serial_numbers WHERE product_id = :p AND status = 1');
-    $stmt->execute(['p' => $pid]);
+    $bid = (int)($_GET['bid'] ?? 0);
+    $stmt = $pdo->prepare('
+        SELECT sn.serial_id, sn.serial_ref 
+        FROM inventory_serial_numbers sn
+        JOIN inventory_stock_invoices si ON sn.invoice_id = si.invoice_id
+        WHERE sn.product_id = :p AND sn.status = 1 AND si.branch_id = :b
+    ');
+    $stmt->execute(['p' => $pid, 'b' => $bid]);
     echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
     exit;
 }
 if (isset($_GET['ajax_get_serials_checkin'])) {
     $pid = (int)$_GET['pid'];
-    $stmt = $pdo->prepare('SELECT serial_id, serial_ref FROM inventory_serial_numbers WHERE product_id = :p AND status = 2');
-    $stmt->execute(['p' => $pid]);
+    $bid = (int)($_GET['bid'] ?? 0);
+    $stmt = $pdo->prepare('
+        SELECT sn.serial_id, sn.serial_ref 
+        FROM inventory_serial_numbers sn
+        JOIN inventory_stock_invoices si ON sn.invoice_id = si.invoice_id
+        WHERE sn.product_id = :p AND sn.status = 2 AND si.branch_id = :b
+    ');
+    $stmt->execute(['p' => $pid, 'b' => $bid]);
     echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
     exit;
 }
@@ -81,9 +96,6 @@ $stmt = $pdo->prepare('
 $stmt->execute(['cid' => $customerId]);
 $assetHistory = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-$products = $pdo->query('SELECT product_id, product_name FROM inventory_products WHERE status = 1 ORDER BY product_name ASC')->fetchAll(PDO::FETCH_ASSOC);
-$branches = $pdo->query('SELECT branch_id, branch_name FROM branches WHERE status = 1 ORDER BY branch_name ASC')->fetchAll(PDO::FETCH_ASSOC);
-
 $stmt = $pdo->prepare('SELECT * FROM customers WHERE customer_id = :id LIMIT 1');
 $stmt->execute(['id' => $customerId]);
 $customer = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -91,6 +103,110 @@ $customer = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$customer) {
     header('Location: customers.php');
     exit;
+}
+
+$branches = $pdo->query('SELECT branch_id, branch_name FROM branches WHERE status = 1 ORDER BY branch_name ASC')->fetchAll(PDO::FETCH_ASSOC);
+
+// Find customer's branch ID from the branch name
+$customerBranchId = 0;
+if (!empty($customer['branch'])) {
+    foreach ($branches as $b) {
+        if (trim(strtolower((string)$b['branch_name'])) === trim(strtolower((string)$customer['branch']))) {
+            $customerBranchId = (int)$b['branch_id'];
+            break;
+        }
+    }
+}
+
+// Fetch products that have available serials (status=1) in this branch
+if ($customerBranchId > 0) {
+    $productsStmt = $pdo->prepare('
+        SELECT DISTINCT p.product_id, p.product_name 
+        FROM inventory_products p
+        JOIN inventory_serial_numbers sn ON p.product_id = sn.product_id
+        JOIN inventory_stock_invoices si ON sn.invoice_id = si.invoice_id
+        WHERE sn.status = 1 AND si.branch_id = :bid AND p.status = 1
+        ORDER BY p.product_name ASC
+    ');
+    $productsStmt->execute(['bid' => $customerBranchId]);
+    $products = $productsStmt->fetchAll(PDO::FETCH_ASSOC);
+} else {
+    // If no branch matched, show no products or handle gracefully
+    $products = []; 
+}
+
+// Fetch Tickets
+$ticketsStmt = $pdo->prepare('
+    SELECT t.*, st.status_name, pri.priority_name, pri.color as priority_color, au.full_name as assigned_to
+    FROM support_tickets t
+    LEFT JOIN support_ticket_statuses st ON t.ticket_status_id = st.ticket_status_id
+    LEFT JOIN support_ticket_priorities pri ON t.priority_id = pri.priority_id
+    LEFT JOIN admin_users au ON t.assigned_employee_id = au.admin_user_id
+    WHERE t.customer_id = :cid AND t.status = 1
+    ORDER BY t.created_at DESC
+');
+$ticketsStmt->execute(['cid' => $customerId]);
+$customerTickets = $ticketsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch Priorities & Agents for the quick-edit form
+$priorities = $pdo->query("SELECT priority_id, priority_name FROM support_ticket_priorities WHERE status = 1 ORDER BY sort_order ASC")->fetchAll(PDO::FETCH_ASSOC);
+$employees = $pdo->query("SELECT admin_user_id, full_name FROM admin_users WHERE status = 1 ORDER BY full_name ASC")->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch Selected Ticket details if ticket_id is provided
+$selectedTicket = null;
+if (isset($_GET['ticket_id'])) {
+    $stStmt = $pdo->prepare('
+        SELECT t.*, st.status_name, pri.priority_name, pri.color as priority_color, au.full_name as assigned_to,
+               u.full_name as updated_by_name
+        FROM support_tickets t
+        LEFT JOIN support_ticket_statuses st ON t.ticket_status_id = st.ticket_status_id
+        LEFT JOIN support_ticket_priorities pri ON t.priority_id = pri.priority_id
+        LEFT JOIN admin_users au ON t.assigned_employee_id = au.admin_user_id
+        LEFT JOIN admin_users u ON t.updated_by = u.admin_user_id
+        WHERE t.ticket_id = :tid AND t.customer_id = :cid
+    ');
+    $stStmt->execute(['tid' => $_GET['ticket_id'], 'cid' => $customerId]);
+    $selectedTicket = $stStmt->fetch(PDO::FETCH_ASSOC);
+
+    // Fetch Notes for the selected ticket
+    $ticketNotes = [];
+    if ($selectedTicket) {
+        $notesStmt = $pdo->prepare('
+            SELECT n.*, au.full_name as created_by_name, au.username as created_by_username
+            FROM support_ticket_notes n
+            LEFT JOIN admin_users au ON au.admin_user_id = n.created_by
+            WHERE n.ticket_id = :tid AND n.status = 1
+            ORDER BY n.created_at DESC
+        ');
+        $notesStmt->execute(['tid' => $selectedTicket['ticket_id']]);
+        $ticketNotes = $notesStmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+}
+
+// Fetch All Notes for all tickets of this customer
+$allCustomerNotesStmt = $pdo->prepare('
+    SELECT n.*, t.ticket_no, au.full_name as created_by_name, au.username as created_by_username
+    FROM support_ticket_notes n
+    JOIN support_tickets t ON n.ticket_id = t.ticket_id
+    LEFT JOIN admin_users au ON n.created_by = au.admin_user_id
+    WHERE t.customer_id = :cid AND n.status = 1
+    ORDER BY n.created_at DESC
+');
+$allCustomerNotesStmt->execute(['cid' => $customerId]);
+$allCustomerNotesRaw = $allCustomerNotesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Group notes by ticket_id
+$allCustomerNotes = [];
+foreach ($allCustomerNotesRaw as $note) {
+    $tid = $note['ticket_id'];
+    if (!isset($allCustomerNotes[$tid])) {
+        $allCustomerNotes[$tid] = [
+            'ticket_no' => $note['ticket_no'],
+            'ticket_id' => $note['ticket_id'],
+            'notes'     => []
+        ];
+    }
+    $allCustomerNotes[$tid]['notes'][] = $note;
 }
 
 require '../../includes/header.php';
@@ -125,65 +241,50 @@ require '../../includes/header.php';
                       </div>
                     </div>
                   </div>
-                  <div class="card-body bg-body-tertiary">
-                    <div class="card border rounded-3 bg-white dark__bg-1000 shadow-none">
-                      <div class="bg-holder bg-card d-none d-sm-block d-xl-none" style="background-image:url(../../assets/img/icons/spot-illustrations/corner-2.png);"></div><!--/.bg-holder-->
-                      <div class="card-body row g-0 flex-column flex-sm-row flex-xl-column z-1 align-items-center">
-                        <div class="col-auto text-center me-sm-x1 me-xl-0"><img class="ticket-preview-avatar" src="../../assets/img/team/5-thumb.png" alt="" /></div>
-                        <div class="col-sm-8 col-md-6 col-lg-4 col-xl-12 ps-sm-1 ps-xl-0">
-                          <p class="fw-semi-bold mb-0 text-800 text-center text-sm-start text-xl-center mb-3 mt-3 mt-sm-0 mt-xl-3"><?= htmlspecialchars((string) $customer['username']) ?></p>
-                          <div class="d-flex gap-2 justify-content-center"><button class="btn btn-primary btn-sm px-2 text-nowrap w-50"><span class="fas fa-plus me-1" data-fa-transform="shrink-3 down-1"></span><span class="fs-11">New Ticket</span></button>
-                            <button class="btn btn-sm btn-falcon-default w-50"><span class="fas fa-phone-alt me-1" data-fa-transform="shrink-4"></span><span class="fs-11">Call</span></button>
+                  <div class="card-body p-0">
+                    <div class="px-3 py-2">
+                      <?php
+                      $d = fn($v) => htmlspecialchars((string)($v ?? ''));
+                      $rows = [
+                        ['icon' => 'fa-user',            'label' => 'Full Name',        'value' => $customer['full_name'] ?? $customer['username']],
+                        ['icon' => 'fa-id-badge',        'label' => 'Radious ID',       'value' => $customer['radious_id'] ?? null],
+                        ['icon' => 'fa-address-card',    'label' => 'NID',              'value' => $customer['nid'] ?? null],
+                        ['icon' => 'fa-envelope',        'label' => 'Email',            'value' => $customer['email'] ?? null,    'mailto' => true],
+                        ['icon' => 'fa-phone',           'label' => 'Phone No',         'value' => $customer['phone_no'] ?? null, 'tel' => true],
+                        ['icon' => 'fa-map-marker-alt',  'label' => 'Address',          'value' => $customer['address'] ?? null],
+                        ['icon' => 'fa-layer-group',     'label' => 'Area',             'value' => $customer['area'] ?? null],
+                        ['icon' => 'fa-map-pin',         'label' => 'Sub Area',         'value' => $customer['sub_area'] ?? null],
+                        ['icon' => 'fa-code-branch',     'label' => 'Branch',           'value' => $customer['branch'] ?? null],
+                        ['icon' => 'fa-box',             'label' => 'Package',          'value' => $customer['package_id'] ?? null],
+                        ['icon' => 'fa-calendar-check',  'label' => 'Activate Date',    'value' => $customer['package_activate_date'] ?? null],
+                        ['icon' => 'fa-calendar-times',  'label' => 'Expire Date',      'value' => $customer['package_expire_date'] ?? null],
+                        ['icon' => 'fa-calendar-alt',    'label' => 'Registered Date',  'value' => $customer['registered_date'] ?? null],
+                        ['icon' => 'fa-piggy-bank',      'label' => 'Deposit Money',    'value' => isset($customer['deposit_money'])    ? 'Tk ' . number_format((float)$customer['deposit_money'], 2)    : null],
+                        ['icon' => 'fa-plug',            'label' => 'Connection Charge','value' => isset($customer['connection_charge']) ? 'Tk ' . number_format((float)$customer['connection_charge'], 2) : null],
+                        ['icon' => 'fa-sticky-note',     'label' => 'Notes',            'value' => $customer['notes'] ?? null],
+                        ['icon' => 'fa-clock',           'label' => 'Created At',       'value' => !empty($customer['created_at']) ? date('M d, Y g:i A', strtotime($customer['created_at'])) : null],
+                        ['icon' => 'fa-sync-alt',        'label' => 'Updated At',       'value' => !empty($customer['updated_at']) ? date('M d, Y g:i A', strtotime($customer['updated_at'])) : null],
+                      ];
+                      foreach ($rows as $r):
+                        $val = $r['value'];
+                        if ($val === null || $val === '') continue;
+                      ?>
+                      <div class="d-flex align-items-start py-2 border-bottom border-200">
+                        <span class="fas <?= $r['icon'] ?> text-400 me-2 mt-1 fs-10" style="width:14px;text-align:center;"></span>
+                        <div class="flex-1" style="min-width:0;">
+                          <div class="fs-11 text-500 mb-0"><?= $r['label'] ?></div>
+                          <div class="fs-10 text-700 fw-medium text-break">
+                            <?php if (!empty($r['mailto'])): ?>
+                              <a href="mailto:<?= $d($val) ?>"><?= $d($val) ?></a>
+                            <?php elseif (!empty($r['tel'])): ?>
+                              <a href="tel:<?= $d($val) ?>"><?= $d($val) ?></a>
+                            <?php else: ?>
+                              <?= $d($val) ?>
+                            <?php endif; ?>
                           </div>
                         </div>
                       </div>
-                    </div>
-                    <div class="border rounded-3 p-x1 mt-3 bg-white dark__bg-1000 row mx-0 g-0">
-                      <div class="col-md-6 col-xl-12 pe-md-4 pe-xl-0">
-                        <div class="mb-4">
-                          <h6 class="mb-1 false">Email</h6><a class="fs-10" href="mailto:<?= htmlspecialchars((string) ($customer['email'] ?? '')) ?>"><?= htmlspecialchars((string) ($customer['email'] ?? 'N/A')) ?></a>
-                        </div>
-                        <div class="mb-4">
-                          <h6 class="false mb-1">Phone Number</h6><a class="fs-10" href="tel:<?= htmlspecialchars((string) $customer['phone_no']) ?>"><?= htmlspecialchars((string) $customer['phone_no']) ?></a>
-                        </div>
-                        <div class="mb-4">
-                          <h6 class="false false">Location</h6>
-                          <p class="mb-0 text-700 fs-10"><?= htmlspecialchars((string) $customer['area']) ?>, <?= htmlspecialchars((string) $customer['sub_area']) ?></p>
-                        </div>
-                        <div class="mb-4">
-                          <h6 class="false false">Branch</h6>
-                          <p class="mb-0 text-700 fs-10"><?= htmlspecialchars((string) $customer['branch']) ?></p>
-                        </div>
-                        <div class="mb-4 mb-md-0 mb-xl-4">
-                          <h6 class="false false">Account Verified by Twitter</h6>
-                          <p class="mb-0 text-700 fs-10">No</p>
-                        </div>
-                      </div>
-                      <div class="col-md-6 col-xl-12 ps-md-4 ps-xl-0">
-                        <div class="mb-4">
-                          <h6 class="false false">Registration Date</h6>
-                          <p class="mb-0 text-700 fs-10"><?= htmlspecialchars((string) $customer['registered_date']) ?></p>
-                        </div>
-                        <div class="mb-4">
-                          <h6 class="false false">Package</h6>
-                          <p class="mb-0 text-700 fs-10"><?= htmlspecialchars((string) ($customer['package_id'] ?? 'None')) ?></p>
-                        </div>
-                        <div class="mb-4">
-                          <h6 class="false false">Package Activate / Expire</h6>
-                          <p class="mb-0 text-700 fs-10">
-                            <?= htmlspecialchars((string) ($customer['package_activate_date'] ?? '-')) ?> / 
-                            <?= htmlspecialchars((string) ($customer['package_expire_date']   ?? '-')) ?>
-                          </p>
-                        </div>
-                        <div class="mb-4">
-                          <h6 class="false false">Deposit / Connection Charge</h6>
-                          <p class="mb-0 text-700 fs-10">
-                            <?= number_format((float) ($customer['deposit_money'] ?? 0), 2) ?> / 
-                            <?= number_format((float) ($customer['connection_charge'] ?? 0), 2) ?>
-                          </p>
-                        </div>
-                        <h6>Tag</h6><a class="badge border link-secondary me-1 text-decoration-none fs-11" href="#!">New</a><a class="badge border link-secondary me-1 text-decoration-none fs-11" href="#!">Payment</a><a class="badge border link-secondary text-decoration-none fs-11" href="#!">Subscribe</a>
-                      </div>
+                      <?php endforeach; ?>
                     </div>
                   </div>
                 </div>
@@ -217,7 +318,7 @@ require '../../includes/header.php';
                 </div>
               </div>
             </div>
-            <div class="col-xxl-9 col-xl-8">
+            <div class="col-xxl-6 col-xl-6">
               <div class="card overflow-hidden">
                 <div class="card-header p-0 scrollbar-overlay border-bottom">
                   <ul class="nav nav-tabs border-0 tab-contact-details flex-nowrap" id="contact-details-tab" role="tablist">
@@ -404,308 +505,112 @@ require '../../includes/header.php';
                   </div>
                   <div class="card-body tab-pane p-0" id="tickets" role="tabpanel" aria-labelledby="contact-tickets-tab">
                     <div class="bg-body-tertiary d-flex flex-column gap-3 p-x1">
-                      <div class="bg-white dark__bg-1100 p-x1 rounded-3 shadow-sm d-md-flex d-xl-inline-block d-xxl-flex align-items-center">
-                        <div>
-                          <p class="fw-semi-bold"><a href="tickets-preview.php">Got a new television | Order #377</a></p>
-                          <div class="d-flex align-items-center">
-                            <h6 class="mb-0 me-3 text-800">25 September, 2022</h6><small class="badge rounded badge-subtle-success false">Recent</small>
+                      <?php if (empty($customerTickets)): ?>
+                        <div class="bg-white dark__bg-1100 p-x1 rounded-3 shadow-sm text-center">
+                          <p class="text-500 mb-0 py-3">No tickets found for this customer.</p>
+                        </div>
+                      <?php else: ?>
+                        <?php foreach ($customerTickets as $t): 
+                          $statusLabel = $t['status_name'] ?: 'Open';
+                          $statusClass = 'secondary';
+                          if (stripos($statusLabel, 'open') !== false || stripos($statusLabel, 'recent') !== false) {
+                            $statusClass = 'success';
+                          } elseif (stripos($statusLabel, 'progress') !== false || stripos($statusLabel, 'responded') !== false) {
+                            $statusClass = 'info';
+                          } elseif (stripos($statusLabel, 'pending') !== false) {
+                            $statusClass = 'warning';
+                          }
+                          
+                          $priorityColor = strtolower(trim((string)($t['priority_color'] ?? 'primary')));
+                          $falconColors = [
+                            'primary'   => '#2c7be5',
+                            'success'   => '#00d27a',
+                            'warning'   => '#f5803e',
+                            'danger'    => '#e63757',
+                            'info'      => '#27bcfd',
+                            'secondary' => '#748194'
+                          ];
+                          $strokeColor = $falconColors[$priorityColor] ?? '#2c7be5';
+                        ?>
+                          <?php 
+                            $isSelected = isset($_GET['ticket_id']) && (int)$_GET['ticket_id'] === (int)$t['ticket_id'];
+                            $ticketUrl = 'customer-details.php?' . http_build_query(array_merge($_GET, ['ticket_id' => $t['ticket_id']]));
+                          ?>
+                          <div class="bg-white dark__bg-1100 p-x1 rounded-3 shadow-sm d-md-flex d-xl-inline-block d-xxl-flex align-items-center <?= $isSelected ? 'border border-primary border-2' : '' ?>" 
+                               style="cursor: pointer;" 
+                               onclick="window.location='<?= $ticketUrl ?>'">
+                            <div class="flex-1">
+                              <p class="fw-semi-bold mb-1">
+                                <a href="<?= $ticketUrl ?>" class="<?= $isSelected ? 'text-primary' : '' ?>">
+                                  <?= htmlspecialchars((string)$t['ticket_no']) ?> | <?= htmlspecialchars(mb_strimwidth((string)$t['issue_details'], 0, 80, '...')) ?>
+                                </a>
+                              </p>
+                              <div class="d-flex align-items-center">
+                                <h6 class="mb-0 me-3 text-800 fs-11"><?= date('d M, Y', strtotime($t['created_at'])) ?></h6>
+                                <small class="badge rounded badge-subtle-<?= $statusClass ?>"><?= htmlspecialchars($statusLabel) ?></small>
+                              </div>
+                            </div>
+                            <div class="border-bottom d-md-none mt-3 mb-3"></div>
+                            <div class="d-flex justify-content-between align-items-center ms-md-auto">
+                              <div class="d-flex align-items-center gap-2 me-4" style="width:7.5rem;">
+                                <div style="--falcon-circle-progress-bar:100">
+                                  <svg class="circle-progress-svg" width="26" height="26" viewBox="0 0 120 120">
+                                    <circle class="progress-bar-rail" cx="60" cy="60" r="54" fill="none" stroke-width="12"></circle>
+                                    <circle class="progress-bar-top" cx="60" cy="60" r="54" fill="none" stroke-linecap="round" stroke="<?= $strokeColor ?>" stroke-width="12"></circle>
+                                  </svg>
+                                </div>
+                                <h6 class="mb-0 text-700 fs-11"><?= htmlspecialchars((string)($t['priority_name'] ?: 'Normal')) ?></h6>
+                              </div>
+                              <div class="text-end">
+                                <div class="fs-11 text-600">Agent</div>
+                                <div class="fw-semi-bold text-900 fs-11"><?= htmlspecialchars((string)($t['assigned_to'] ?: 'Unassigned')) ?></div>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                        <div class="border-bottom mt-4 mb-x1"></div>
-                        <div class="d-flex justify-content-between ms-auto">
-                          <div class="d-flex align-items-center gap-2 ms-md-4 ms-xl-0 ms-xxl-4" style="width:7.5rem;">
-                            <div style="--falcon-circle-progress-bar:100"><svg class="circle-progress-svg" width="26" height="26" viewBox="0 0 120 120">
-                                <circle class="progress-bar-rail" cx="60" cy="60" r="54" fill="none" stroke-width="12"></circle>
-                                <circle class="progress-bar-top" cx="60" cy="60" r="54" fill="none" stroke-linecap="round" stroke="#e63757" stroke-width="12"></circle>
-                              </svg></div>
-                            <h6 class="mb-0 text-700">Urgent</h6>
-                          </div><select class="form-select form-select-sm" aria-label="agents actions" style="width:9.375rem;">
-                            <option>Select Agent</option>
-                            <option selected="selected">Anindya</option>
-                            <option>Nowrin</option>
-                            <option>Khalid</option>
-                            <option>Shajeeb</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div class="bg-white dark__bg-1100 p-x1 rounded-3 shadow-sm d-md-flex d-xl-inline-block d-xxl-flex align-items-center">
-                        <div>
-                          <p class="fw-semi-bold"><a href="tickets-preview.php">Subscription Issue | Order #362</a></p>
-                          <div class="d-flex align-items-center">
-                            <h6 class="mb-0 me-3 text-800">23 September, 2022</h6><small class="badge rounded badge-subtle-secondary dark__bg-1000">Closed</small>
-                          </div>
-                        </div>
-                        <div class="border-bottom mt-4 mb-x1"></div>
-                        <div class="d-flex justify-content-between ms-auto">
-                          <div class="d-flex align-items-center gap-2 ms-md-4 ms-xl-0 ms-xxl-4" style="width:7.5rem;">
-                            <div style="--falcon-circle-progress-bar:25"><svg class="circle-progress-svg" width="26" height="26" viewBox="0 0 120 120">
-                                <circle class="progress-bar-rail" cx="60" cy="60" r="54" fill="none" stroke-width="12"></circle>
-                                <circle class="progress-bar-top" cx="60" cy="60" r="54" fill="none" stroke-linecap="round" stroke="#00D27B" stroke-width="12"></circle>
-                              </svg></div>
-                            <h6 class="mb-0 text-700">Low</h6>
-                          </div><select class="form-select form-select-sm" aria-label="agents actions" style="width:9.375rem;">
-                            <option>Select Agent</option>
-                            <option>Anindya</option>
-                            <option>Nowrin</option>
-                            <option selected="selected">Khalid</option>
-                            <option>Shajeeb</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div class="bg-white dark__bg-1100 p-x1 rounded-3 shadow-sm d-md-flex d-xl-inline-block d-xxl-flex align-items-center">
-                        <div>
-                          <p class="fw-semi-bold"><a href="tickets-preview.php">Received a broken TV | Order #345</a></p>
-                          <div class="d-flex align-items-center">
-                            <h6 class="mb-0 me-3 text-800">20 September, 2022</h6><small class="badge rounded badge-subtle-success false">Recent</small>
-                          </div>
-                        </div>
-                        <div class="border-bottom mt-4 mb-x1"></div>
-                        <div class="d-flex justify-content-between ms-auto">
-                          <div class="d-flex align-items-center gap-2 ms-md-4 ms-xl-0 ms-xxl-4" style="width:7.5rem;">
-                            <div style="--falcon-circle-progress-bar:100"><svg class="circle-progress-svg" width="26" height="26" viewBox="0 0 120 120">
-                                <circle class="progress-bar-rail" cx="60" cy="60" r="54" fill="none" stroke-width="12"></circle>
-                                <circle class="progress-bar-top" cx="60" cy="60" r="54" fill="none" stroke-linecap="round" stroke="#e63757" stroke-width="12"></circle>
-                              </svg></div>
-                            <h6 class="mb-0 text-700">Urgent</h6>
-                          </div><select class="form-select form-select-sm" aria-label="agents actions" style="width:9.375rem;">
-                            <option>Select Agent</option>
-                            <option>Anindya</option>
-                            <option selected="selected">Nowrin</option>
-                            <option>Khalid</option>
-                            <option>Shajeeb</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div class="bg-white dark__bg-1100 p-x1 rounded-3 shadow-sm d-md-flex d-xl-inline-block d-xxl-flex align-items-center">
-                        <div>
-                          <p class="fw-semi-bold"><a href="tickets-preview.php">Payment failed | Order #324</a></p>
-                          <div class="d-flex align-items-center">
-                            <h6 class="mb-0 me-3 text-800">03 September, 2022</h6><small class="badge rounded badge-subtle-secondary dark__bg-1000">Closed</small>
-                          </div>
-                        </div>
-                        <div class="border-bottom mt-4 mb-x1"></div>
-                        <div class="d-flex justify-content-between ms-auto">
-                          <div class="d-flex align-items-center gap-2 ms-md-4 ms-xl-0 ms-xxl-4" style="width:7.5rem;">
-                            <div style="--falcon-circle-progress-bar:50"><svg class="circle-progress-svg" width="26" height="26" viewBox="0 0 120 120">
-                                <circle class="progress-bar-rail" cx="60" cy="60" r="54" fill="none" stroke-width="12"></circle>
-                                <circle class="progress-bar-top" cx="60" cy="60" r="54" fill="none" stroke-linecap="round" stroke="#2A7BE4" stroke-width="12"></circle>
-                              </svg></div>
-                            <h6 class="mb-0 text-700">Medium</h6>
-                          </div><select class="form-select form-select-sm" aria-label="agents actions" style="width:9.375rem;">
-                            <option>Select Agent</option>
-                            <option selected="selected">Anindya</option>
-                            <option>Nowrin</option>
-                            <option>Khalid</option>
-                            <option>Shajeeb</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div class="bg-white dark__bg-1100 p-x1 rounded-3 shadow-sm d-md-flex d-xl-inline-block d-xxl-flex align-items-center">
-                        <div>
-                          <p class="fw-semi-bold"><a href="tickets-preview.php">Password change | Order #234</a></p>
-                          <div class="d-flex align-items-center">
-                            <h6 class="mb-0 me-3 text-800">24 August, 2022</h6><small class="badge rounded badge-subtle-secondary dark__bg-1000">Closed</small>
-                          </div>
-                        </div>
-                        <div class="border-bottom mt-4 mb-x1"></div>
-                        <div class="d-flex justify-content-between ms-auto">
-                          <div class="d-flex align-items-center gap-2 ms-md-4 ms-xl-0 ms-xxl-4" style="width:7.5rem;">
-                            <div style="--falcon-circle-progress-bar:100"><svg class="circle-progress-svg" width="26" height="26" viewBox="0 0 120 120">
-                                <circle class="progress-bar-rail" cx="60" cy="60" r="54" fill="none" stroke-width="12"></circle>
-                                <circle class="progress-bar-top" cx="60" cy="60" r="54" fill="none" stroke-linecap="round" stroke="#e63757" stroke-width="12"></circle>
-                              </svg></div>
-                            <h6 class="mb-0 text-700">Urgent</h6>
-                          </div><select class="form-select form-select-sm" aria-label="agents actions" style="width:9.375rem;">
-                            <option>Select Agent</option>
-                            <option>Anindya</option>
-                            <option selected="selected">Nowrin</option>
-                            <option>Khalid</option>
-                            <option>Shajeeb</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div class="bg-white dark__bg-1100 p-x1 rounded-3 shadow-sm d-md-flex d-xl-inline-block d-xxl-flex align-items-center">
-                        <div>
-                          <p class="fw-semi-bold"><a href="tickets-preview.php">Email Address change | Order #202</a></p>
-                          <div class="d-flex align-items-center">
-                            <h6 class="mb-0 me-3 text-800">20 August, 2022</h6><small class="badge rounded badge-subtle-secondary dark__bg-1000">Closed</small>
-                          </div>
-                        </div>
-                        <div class="border-bottom mt-4 mb-x1"></div>
-                        <div class="d-flex justify-content-between ms-auto">
-                          <div class="d-flex align-items-center gap-2 ms-md-4 ms-xl-0 ms-xxl-4" style="width:7.5rem;">
-                            <div style="--falcon-circle-progress-bar:25"><svg class="circle-progress-svg" width="26" height="26" viewBox="0 0 120 120">
-                                <circle class="progress-bar-rail" cx="60" cy="60" r="54" fill="none" stroke-width="12"></circle>
-                                <circle class="progress-bar-top" cx="60" cy="60" r="54" fill="none" stroke-linecap="round" stroke="#00D27B" stroke-width="12"></circle>
-                              </svg></div>
-                            <h6 class="mb-0 text-700">Low</h6>
-                          </div><select class="form-select form-select-sm" aria-label="agents actions" style="width:9.375rem;">
-                            <option>Select Agent</option>
-                            <option>Anindya</option>
-                            <option>Nowrin</option>
-                            <option>Khalid</option>
-                            <option selected="selected">Shajeeb</option>
-                          </select>
-                        </div>
-                      </div>
+                        <?php endforeach; ?>
+                      <?php endif; ?>
                     </div>
                   </div>
+                  <!-- END OF TICKETS TAB -->
                   <div class="card-body tab-pane p-0" id="notes" role="tabpanel" aria-labelledby="contact-notes-tab">
                     <div class="bg-body-tertiary d-flex flex-column gap-3 p-x1">
-                      <div class="bg-white dark__bg-1100 p-x1 rounded-3 shadow-sm">
-                        <div class="row flex-between-center">
-                          <div class="col-12 col-md-7 col-xl-12 col-xxl-8 order-1 order-md-0 order-xl-1 order-xxl-0">
-                            <h5 class="mb-0 border-top border-top-md-0 border-top-xl border-top-xxl-0 mt-x1 mt-md-0 mt-xl-x1 mt-xxl-0 pt-x1 pt-md-0 pt-xl-x1 pt-xxl-0 border-200 border-xl-200">Not able to access the system</h5>
-                          </div>
-                          <div class="col-12 col-md-auto col-xl-12 col-xxl-auto d-flex flex-between-center"><select class="form-select form-select-sm me-2 w-auto" aria-label="agents actions">
-                              <option>Select Agent</option>
-                              <option selected="selected">Anindya</option>
-                              <option>Nowrin</option>
-                              <option>Khalid</option>
-                              <option>Shajeeb</option>
-                            </select>
-                            <div class="dropdown font-sans-serif"><button class="btn btn-falcon-default text-600 btn-sm dropdown-toggle dropdown-caret-none" type="button" id="notes-dropdown-0" data-bs-toggle="dropdown" data-boundary="viewport" aria-haspopup="true" aria-expanded="false"><span class="fas fa-ellipsis-h fs-11"></span></button>
-                              <div class="dropdown-menu dropdown-menu-end border py-2" aria-labelledby="notes-dropdown-0"><a class="dropdown-item" href="#!">View</a><a class="dropdown-item" href="#!">Export</a>
-                                <div class="dropdown-divider"></div><a class="dropdown-item text-danger" href="#!">Remove</a>
+                      <?php if (empty($allCustomerNotes)): ?>
+                        <div class="bg-white dark__bg-1100 p-x1 rounded-3 shadow-sm text-center">
+                          <p class="text-500 mb-0 py-3">No ticket notes found for this customer.</p>
+                        </div>
+                      <?php else: ?>
+                        <?php foreach ($allCustomerNotes as $ticketGroup): ?>
+                          <div class="bg-white dark__bg-1100 p-x1 rounded-3 shadow-sm">
+                            <div class="row flex-between-center mb-2">
+                              <div class="col-12">
+                                <h5 class="mb-1 border-bottom pb-2">
+                                  <a href="customer-details.php?id=<?= $customerId ?>&ticket_id=<?= (int)$ticketGroup['ticket_id'] ?>#tickets">
+                                    Ticket: <?= htmlspecialchars((string)$ticketGroup['ticket_no']) ?>
+                                  </a>
+                                </h5>
                               </div>
                             </div>
-                          </div>
-                        </div>
-                        <h6 class="mb-0 mt-2"><span class="fas fa-clock text-primary me-2"></span><span class="text-600">28 Sep, 2020</span><span class="text-500"> at </span><span class="text-600">12:06 AM</span></h6>
-                        <p class="w-lg-75 w-xl-100 w-xxl-75 mb-0 border-top border-top-md-0 border-top-xl border-top-xxl-0 mt-x1 mt-md-4 mt-xl-x1 mt-xxl-4 pt-x1 pt-md-0 pt-xl-x1 pt-xxl-0 border-200 border-xl-200">The PS4's hard drive is most likely the source of this CE-34335-8 safe mode error notice. Try these techniques to fix the hard drive issue if your PS4 won't start and won't let you access system storage because of error number CE-34335-8.</p>
-                      </div>
-                      <div class="bg-white dark__bg-1100 p-x1 rounded-3 shadow-sm">
-                        <div class="row flex-between-center">
-                          <div class="col-12 col-md-7 col-xl-12 col-xxl-8 order-1 order-md-0 order-xl-1 order-xxl-0">
-                            <h5 class="mb-0 border-top border-top-md-0 border-top-xl border-top-xxl-0 mt-x1 mt-md-0 mt-xl-x1 mt-xxl-0 pt-x1 pt-md-0 pt-xl-x1 pt-xxl-0 border-200 border-xl-200">No refund was requested</h5>
-                          </div>
-                          <div class="col-12 col-md-auto col-xl-12 col-xxl-auto d-flex flex-between-center"><select class="form-select form-select-sm me-2 w-auto" aria-label="agents actions">
-                              <option>Select Agent</option>
-                              <option>Anindya</option>
-                              <option>Nowrin</option>
-                              <option selected="selected">Khalid</option>
-                              <option>Shajeeb</option>
-                            </select>
-                            <div class="dropdown font-sans-serif"><button class="btn btn-falcon-default text-600 btn-sm dropdown-toggle dropdown-caret-none" type="button" id="notes-dropdown-1" data-bs-toggle="dropdown" data-boundary="viewport" aria-haspopup="true" aria-expanded="false"><span class="fas fa-ellipsis-h fs-11"></span></button>
-                              <div class="dropdown-menu dropdown-menu-end border py-2" aria-labelledby="notes-dropdown-1"><a class="dropdown-item" href="#!">View</a><a class="dropdown-item" href="#!">Export</a>
-                                <div class="dropdown-divider"></div><a class="dropdown-item text-danger" href="#!">Remove</a>
-                              </div>
+                            <div class="d-flex flex-column gap-2">
+                              <?php foreach ($ticketGroup['notes'] as $note): 
+                                $noteAuthor = $note['created_by_name'] ?: $note['created_by_username'] ?: 'System';
+                                $noteTime = new DateTime($note['created_at']);
+                              ?>
+                                <div class="p-2 border rounded-3 bg-body-tertiary">
+                                  <div class="d-flex align-items-center justify-content-between gap-2 mb-1">
+                                    <small class="badge badge-subtle-info rounded-pill fs-11">Agent: <?= htmlspecialchars($noteAuthor) ?></small>
+                                    <small class="text-600 fs-11">
+                                      <span class="fas fa-clock me-1"></span><?= $noteTime->format('d M, Y h:i A') ?>
+                                    </small>
+                                  </div>
+                                  <p class="mb-0 fs-10 text-700">
+                                    <?= nl2br(htmlspecialchars((string)$note['note_text'])) ?>
+                                  </p>
+                                </div>
+                              <?php endforeach; ?>
                             </div>
                           </div>
-                        </div>
-                        <h6 class="mb-0 mt-2"><span class="fas fa-clock text-primary me-2"></span><span class="text-600">25 Sep, 2020</span><span class="text-500"> at </span><span class="text-600">03:18 PM</span></h6>
-                        <p class="w-lg-75 w-xl-100 w-xxl-75 mb-0 border-top border-top-md-0 border-top-xl border-top-xxl-0 mt-x1 mt-md-4 mt-xl-x1 mt-xxl-4 pt-x1 pt-md-0 pt-xl-x1 pt-xxl-0 border-200 border-xl-200">It only takes a little while for a consumer to arrive on your door asking for a refund if you sell things online or in a physical store. And instead of closing that door all the way, think of a different approach.</p>
-                      </div>
-                      <div class="bg-white dark__bg-1100 p-x1 rounded-3 shadow-sm">
-                        <div class="row flex-between-center">
-                          <div class="col-12 col-md-7 col-xl-12 col-xxl-8 order-1 order-md-0 order-xl-1 order-xxl-0">
-                            <h5 class="mb-0 border-top border-top-md-0 border-top-xl border-top-xxl-0 mt-x1 mt-md-0 mt-xl-x1 mt-xxl-0 pt-x1 pt-md-0 pt-xl-x1 pt-xxl-0 border-200 border-xl-200">Use case for online ticket notes</h5>
-                          </div>
-                          <div class="col-12 col-md-auto col-xl-12 col-xxl-auto d-flex flex-between-center"><select class="form-select form-select-sm me-2 w-auto" aria-label="agents actions">
-                              <option>Select Agent</option>
-                              <option>Anindya</option>
-                              <option selected="selected">Nowrin</option>
-                              <option>Khalid</option>
-                              <option>Shajeeb</option>
-                            </select>
-                            <div class="dropdown font-sans-serif"><button class="btn btn-falcon-default text-600 btn-sm dropdown-toggle dropdown-caret-none" type="button" id="notes-dropdown-2" data-bs-toggle="dropdown" data-boundary="viewport" aria-haspopup="true" aria-expanded="false"><span class="fas fa-ellipsis-h fs-11"></span></button>
-                              <div class="dropdown-menu dropdown-menu-end border py-2" aria-labelledby="notes-dropdown-2"><a class="dropdown-item" href="#!">View</a><a class="dropdown-item" href="#!">Export</a>
-                                <div class="dropdown-divider"></div><a class="dropdown-item text-danger" href="#!">Remove</a>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                        <h6 class="mb-0 mt-2"><span class="fas fa-clock text-primary me-2"></span><span class="text-600">22 Sep, 2020</span><span class="text-500"> at </span><span class="text-600">10:21 AM</span></h6>
-                        <p class="w-lg-75 w-xl-100 w-xxl-75 mb-0 border-top border-top-md-0 border-top-xl border-top-xxl-0 mt-x1 mt-md-4 mt-xl-x1 mt-xxl-4 pt-x1 pt-md-0 pt-xl-x1 pt-xxl-0 border-200 border-xl-200">Using the inline ticket notes allows you to take notes while interacting with consumers. You may jot down notes while assisting a customer over live chat or over the phone, for instance. Aside from that.</p>
-                      </div>
-                      <div class="bg-white dark__bg-1100 p-x1 rounded-3 shadow-sm">
-                        <div class="row flex-between-center">
-                          <div class="col-12 col-md-7 col-xl-12 col-xxl-8 order-1 order-md-0 order-xl-1 order-xxl-0">
-                            <h5 class="mb-0 border-top border-top-md-0 border-top-xl border-top-xxl-0 mt-x1 mt-md-0 mt-xl-x1 mt-xxl-0 pt-x1 pt-md-0 pt-xl-x1 pt-xxl-0 border-200 border-xl-200">Github Uploaded of the Conscious Administrator</h5>
-                          </div>
-                          <div class="col-12 col-md-auto col-xl-12 col-xxl-auto d-flex flex-between-center"><select class="form-select form-select-sm me-2 w-auto" aria-label="agents actions">
-                              <option>Select Agent</option>
-                              <option>Anindya</option>
-                              <option>Nowrin</option>
-                              <option>Khalid</option>
-                              <option selected="selected">Shajeeb</option>
-                            </select>
-                            <div class="dropdown font-sans-serif"><button class="btn btn-falcon-default text-600 btn-sm dropdown-toggle dropdown-caret-none" type="button" id="notes-dropdown-3" data-bs-toggle="dropdown" data-boundary="viewport" aria-haspopup="true" aria-expanded="false"><span class="fas fa-ellipsis-h fs-11"></span></button>
-                              <div class="dropdown-menu dropdown-menu-end border py-2" aria-labelledby="notes-dropdown-3"><a class="dropdown-item" href="#!">View</a><a class="dropdown-item" href="#!">Export</a>
-                                <div class="dropdown-divider"></div><a class="dropdown-item text-danger" href="#!">Remove</a>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                        <h6 class="mb-0 mt-2"><span class="fas fa-clock text-primary me-2"></span><span class="text-600">15 Sep, 2020</span><span class="text-500"> at </span><span class="text-600">12:21 PM</span></h6>
-                        <p class="w-lg-75 w-xl-100 w-xxl-75 mb-0 border-top border-top-md-0 border-top-xl border-top-xxl-0 mt-x1 mt-md-4 mt-xl-x1 mt-xxl-4 pt-x1 pt-md-0 pt-xl-x1 pt-xxl-0 border-200 border-xl-200">Are they really that dissimilar, even though those are mock-ups and this is politics? She may simply have my card, I believe.</p>
-                      </div>
-                      <div class="bg-white dark__bg-1100 p-x1 rounded-3 shadow-sm">
-                        <div class="row flex-between-center">
-                          <div class="col-12 col-md-7 col-xl-12 col-xxl-8 order-1 order-md-0 order-xl-1 order-xxl-0">
-                            <h5 class="mb-0 border-top border-top-md-0 border-top-xl border-top-xxl-0 mt-x1 mt-md-0 mt-xl-x1 mt-xxl-0 pt-x1 pt-md-0 pt-xl-x1 pt-xxl-0 border-200 border-xl-200">Selection of a design team</h5>
-                          </div>
-                          <div class="col-12 col-md-auto col-xl-12 col-xxl-auto d-flex flex-between-center"><select class="form-select form-select-sm me-2 w-auto" aria-label="agents actions">
-                              <option>Select Agent</option>
-                              <option selected="selected">Anindya</option>
-                              <option>Nowrin</option>
-                              <option>Khalid</option>
-                              <option>Shajeeb</option>
-                            </select>
-                            <div class="dropdown font-sans-serif"><button class="btn btn-falcon-default text-600 btn-sm dropdown-toggle dropdown-caret-none" type="button" id="notes-dropdown-4" data-bs-toggle="dropdown" data-boundary="viewport" aria-haspopup="true" aria-expanded="false"><span class="fas fa-ellipsis-h fs-11"></span></button>
-                              <div class="dropdown-menu dropdown-menu-end border py-2" aria-labelledby="notes-dropdown-4"><a class="dropdown-item" href="#!">View</a><a class="dropdown-item" href="#!">Export</a>
-                                <div class="dropdown-divider"></div><a class="dropdown-item text-danger" href="#!">Remove</a>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                        <h6 class="mb-0 mt-2"><span class="fas fa-clock text-primary me-2"></span><span class="text-600">11 Sep, 2020</span><span class="text-500"> at </span><span class="text-600">10:11 PM</span></h6>
-                        <p class="w-lg-75 w-xl-100 w-xxl-75 mb-0 border-top border-top-md-0 border-top-xl border-top-xxl-0 mt-x1 mt-md-4 mt-xl-x1 mt-xxl-4 pt-x1 pt-md-0 pt-xl-x1 pt-xxl-0 border-200 border-xl-200">One designer can make up a design team, as can a group of designers who take on various tasks and employ various techniques and tools to reach a single objective. The shared objective can be achieved by creating a website, a mobile application, or any other design project.</p>
-                      </div>
-                      <div class="bg-white dark__bg-1100 p-x1 rounded-3 shadow-sm">
-                        <div class="row flex-between-center">
-                          <div class="col-12 col-md-7 col-xl-12 col-xxl-8 order-1 order-md-0 order-xl-1 order-xxl-0">
-                            <h5 class="mb-0 border-top border-top-md-0 border-top-xl border-top-xxl-0 mt-x1 mt-md-0 mt-xl-x1 mt-xxl-0 pt-x1 pt-md-0 pt-xl-x1 pt-xxl-0 border-200 border-xl-200">Quickness of Reaction</h5>
-                          </div>
-                          <div class="col-12 col-md-auto col-xl-12 col-xxl-auto d-flex flex-between-center"><select class="form-select form-select-sm me-2 w-auto" aria-label="agents actions">
-                              <option>Select Agent</option>
-                              <option>Anindya</option>
-                              <option>Nowrin</option>
-                              <option>Khalid</option>
-                              <option selected="selected">Shajeeb</option>
-                            </select>
-                            <div class="dropdown font-sans-serif"><button class="btn btn-falcon-default text-600 btn-sm dropdown-toggle dropdown-caret-none" type="button" id="notes-dropdown-5" data-bs-toggle="dropdown" data-boundary="viewport" aria-haspopup="true" aria-expanded="false"><span class="fas fa-ellipsis-h fs-11"></span></button>
-                              <div class="dropdown-menu dropdown-menu-end border py-2" aria-labelledby="notes-dropdown-5"><a class="dropdown-item" href="#!">View</a><a class="dropdown-item" href="#!">Export</a>
-                                <div class="dropdown-divider"></div><a class="dropdown-item text-danger" href="#!">Remove</a>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                        <h6 class="mb-0 mt-2"><span class="fas fa-clock text-primary me-2"></span><span class="text-600">09 Sep, 2020</span><span class="text-500"> at </span><span class="text-600">12:22 AM</span></h6>
-                        <p class="w-lg-75 w-xl-100 w-xxl-75 mb-0 border-top border-top-md-0 border-top-xl border-top-xxl-0 mt-x1 mt-md-4 mt-xl-x1 mt-xxl-4 pt-x1 pt-md-0 pt-xl-x1 pt-xxl-0 border-200 border-xl-200">It has been designed particularly for WordPress, as opposed to other Frameworks which attempt to cover everything.</p>
-                      </div>
-                      <div class="bg-white dark__bg-1100 p-x1 rounded-3 shadow-sm">
-                        <div class="row flex-between-center">
-                          <div class="col-12 col-md-7 col-xl-12 col-xxl-8 order-1 order-md-0 order-xl-1 order-xxl-0">
-                            <h5 class="mb-0 border-top border-top-md-0 border-top-xl border-top-xxl-0 mt-x1 mt-md-0 mt-xl-x1 mt-xxl-0 pt-x1 pt-md-0 pt-xl-x1 pt-xxl-0 border-200 border-xl-200">Cultivate a design-oriented culture</h5>
-                          </div>
-                          <div class="col-12 col-md-auto col-xl-12 col-xxl-auto d-flex flex-between-center"><select class="form-select form-select-sm me-2 w-auto" aria-label="agents actions">
-                              <option>Select Agent</option>
-                              <option>Anindya</option>
-                              <option>Nowrin</option>
-                              <option selected="selected">Khalid</option>
-                              <option>Shajeeb</option>
-                            </select>
-                            <div class="dropdown font-sans-serif"><button class="btn btn-falcon-default text-600 btn-sm dropdown-toggle dropdown-caret-none" type="button" id="notes-dropdown-6" data-bs-toggle="dropdown" data-boundary="viewport" aria-haspopup="true" aria-expanded="false"><span class="fas fa-ellipsis-h fs-11"></span></button>
-                              <div class="dropdown-menu dropdown-menu-end border py-2" aria-labelledby="notes-dropdown-6"><a class="dropdown-item" href="#!">View</a><a class="dropdown-item" href="#!">Export</a>
-                                <div class="dropdown-divider"></div><a class="dropdown-item text-danger" href="#!">Remove</a>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                        <h6 class="mb-0 mt-2"><span class="fas fa-clock text-primary me-2"></span><span class="text-600">05 Sep, 2020</span><span class="text-500"> at </span><span class="text-600">10:21 AM</span></h6>
-                        <p class="w-lg-75 w-xl-100 w-xxl-75 mb-0 border-top border-top-md-0 border-top-xl border-top-xxl-0 mt-x1 mt-md-4 mt-xl-x1 mt-xxl-4 pt-x1 pt-md-0 pt-xl-x1 pt-xxl-0 border-200 border-xl-200">By teaching your designers to put the needs of the customer first and coordinating design objectives with corporate objectives, you can foster a culture of design strategy. Everything your design team does should be based on a design strategy.</p>
-                      </div>
+                        <?php endforeach; ?>
+                      <?php endif; ?>
                     </div>
                   </div>
                   <div class="card-body tab-pane p-0" id="assets" role="tabpanel" aria-labelledby="contact-assets-tab">
@@ -771,6 +676,21 @@ require '../../includes/header.php';
                               <form method="post" action="customer-details.php?id=<?= $customerId ?>">
                                 <input type="hidden" name="asset_action" value="checkout">
                                 <div class="mb-2">
+                                  <label class="form-label fs-11 mb-1">Branch</label>
+                                  <input type="hidden" name="branch_id" value="<?= $customerBranchId ?>">
+                                  <select class="form-select form-select-sm" disabled>
+                                    <?php if ($customerBranchId > 0): ?>
+                                      <?php foreach($branches as $b): ?>
+                                        <?php if ((int)$b['branch_id'] === $customerBranchId): ?>
+                                          <option value="<?= $b['branch_id'] ?>" selected><?= htmlspecialchars($b['branch_name']) ?></option>
+                                        <?php endif; ?>
+                                      <?php endforeach; ?>
+                                    <?php else: ?>
+                                      <option value="0" selected><?= htmlspecialchars($customer['branch'] ?? 'No Branch Assigned') ?></option>
+                                    <?php endif; ?>
+                                  </select>
+                                </div>
+                                <div class="mb-2">
                                   <label class="form-label fs-11 mb-1">Product</label>
                                   <select class="form-select form-select-sm js-asset-prod" name="product_id" required data-type="checkout">
                                     <option value="" disabled selected>Select Product</option>
@@ -782,14 +702,6 @@ require '../../includes/header.php';
                                 <div class="mb-2">
                                   <label class="form-label fs-11 mb-1">Serials</label>
                                   <select class="form-select form-select-sm js-asset-serials" name="serials[]" multiple data-placeholder="Select Serials">
-                                  </select>
-                                </div>
-                                <div class="mb-2">
-                                  <label class="form-label fs-11 mb-1">Branch</label>
-                                  <select class="form-select form-select-sm" name="branch_id" required>
-                                    <?php foreach($branches as $b): ?>
-                                      <option value="<?= $b['branch_id'] ?>"><?= htmlspecialchars($b['branch_name']) ?></option>
-                                    <?php endforeach; ?>
                                   </select>
                                 </div>
                                 <button class="btn btn-primary btn-sm w-100" type="submit">Issue Asset</button>
@@ -804,6 +716,21 @@ require '../../includes/header.php';
                               <form method="post" action="customer-details.php?id=<?= $customerId ?>">
                                 <input type="hidden" name="asset_action" value="checkin">
                                 <div class="mb-2">
+                                  <label class="form-label fs-11 mb-1">Branch</label>
+                                  <input type="hidden" name="branch_id" value="<?= $customerBranchId ?>">
+                                  <select class="form-select form-select-sm" disabled>
+                                    <?php if ($customerBranchId > 0): ?>
+                                      <?php foreach($branches as $b): ?>
+                                        <?php if ((int)$b['branch_id'] === $customerBranchId): ?>
+                                          <option value="<?= $b['branch_id'] ?>" selected><?= htmlspecialchars($b['branch_name']) ?></option>
+                                        <?php endif; ?>
+                                      <?php endforeach; ?>
+                                    <?php else: ?>
+                                      <option value="0" selected><?= htmlspecialchars($customer['branch'] ?? 'No Branch Assigned') ?></option>
+                                    <?php endif; ?>
+                                  </select>
+                                </div>
+                                <div class="mb-2">
                                   <label class="form-label fs-11 mb-1">Product</label>
                                   <select class="form-select form-select-sm js-asset-prod" name="product_id" required data-type="checkin">
                                     <option value="" disabled selected>Select Product</option>
@@ -817,14 +744,6 @@ require '../../includes/header.php';
                                   <select class="form-select form-select-sm js-asset-serials" name="serials[]" multiple data-placeholder="Select Serials">
                                   </select>
                                 </div>
-                                <div class="mb-2">
-                                  <label class="form-label fs-11 mb-1">Branch</label>
-                                  <select class="form-select form-select-sm" name="branch_id" required>
-                                    <?php foreach($branches as $b): ?>
-                                      <option value="<?= $b['branch_id'] ?>"><?= htmlspecialchars($b['branch_name']) ?></option>
-                                    <?php endforeach; ?>
-                                  </select>
-                                </div>
                                 <button class="btn btn-success btn-sm w-100 text-white" type="submit">Return Asset</button>
                               </form>
                             </div>
@@ -835,6 +754,142 @@ require '../../includes/header.php';
                   </div>
                 </div>
               </div>
+            </div>
+            
+            <!-- Right Column: Ticket Details -->
+            <div class="col-xxl-3 col-xl-2">
+              <?php if ($selectedTicket): 
+                $t = $selectedTicket;
+                $statusLabel = $t['status_name'] ?: 'Open';
+                $statusClass = 'secondary';
+                if (stripos($statusLabel, 'open') !== false || stripos($statusLabel, 'recent') !== false) $statusClass = 'success';
+                elseif (stripos($statusLabel, 'progress') !== false || stripos($statusLabel, 'responded') !== false) $statusClass = 'info';
+                elseif (stripos($statusLabel, 'pending') !== false) $statusClass = 'warning';
+
+                $created = new DateTime($t['created_at']);
+                $updated = new DateTime($t['updated_at']);
+                $diff = $created->diff(new DateTime());
+                $duration = $diff->days > 0 ? $diff->days . ' days' : $diff->h . ' hours';
+                
+                $currentUrl = 'customer-details.php?' . http_build_query($_GET);
+              ?>
+              <div class="card mb-3" style="background-image: url(<?= $appBasePath ?>/assets/img/icons/spot-illustrations/corner-1.png); background-position: right bottom; background-repeat: no-repeat; background-size: auto 100%;">
+                <div class="card-body position-relative">
+                  <!-- Row 1: Status + Duration + Action -->
+                  <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                    <div class="d-flex align-items-center gap-2 min-w-0">
+                      <span class="fas fa-info-circle text-500 fs-9"></span>
+                      <span class="badge badge-subtle-<?= $statusClass ?> rounded-pill"><?= htmlspecialchars($statusLabel) ?></span>
+                      <span class="badge badge-subtle-success rounded-pill"><span class="fas fa-calendar-plus me-1"></span><?= $duration ?></span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                      <button class="btn btn-link p-0 text-primary" type="button" title="Print 58mm" onclick="printThermalTicket(<?= (int)$t['ticket_id'] ?>)">
+                        <span class="fas fa-print fs-9"></span>
+                      </button>
+                      <a class="btn btn-link p-0 text-primary" href="all-tickets.php?ticket_id=<?= (int)$t['ticket_id'] ?>" title="Edit in All Tickets">
+                        <span class="fas fa-edit fs-9"></span>
+                      </a>
+                    </div>
+                  </div>
+
+                  <!-- Row 2: Ticket ID -->
+                  <div class="d-flex align-items-center gap-2 mb-2">
+                    <span class="fw-semi-bold fs-10"><?= htmlspecialchars((string)$t['ticket_no']) ?></span>
+                    <button class="btn btn-link p-0 text-primary" type="button" onclick="copyToClipboard('<?= htmlspecialchars((string)$t['ticket_no']) ?>')" title="Copy Ticket ID">
+                      <span class="fas fa-copy fs-9"></span>
+                    </button>
+                  </div>
+
+                  <!-- Row 3: Timestamps -->
+                  <div class="d-flex flex-column gap-1 mb-3">
+                    <small class="badge badge-subtle-info rounded-pill w-100 text-start">
+                      <span class="fas fa-clock me-1"></span>Created: <?= $created->format('M d, Y H:i') ?>
+                    </small>
+                    <small class="badge badge-subtle-secondary rounded-pill w-100 text-start">
+                      <span class="fas fa-sync me-1"></span>Updated: <?= $updated->format('M d, Y H:i') ?>
+                    </small>
+                  </div>
+
+                  <!-- Quick Update Form -->
+                  <form method="post" action="all-tickets.php?<?= http_build_query($_GET) ?>#selected-ticket-details" class="mb-0">
+                    <input type="hidden" name="action" value="quick_update_ticket">
+                    <input type="hidden" name="ticket_id" value="<?= (int)$t['ticket_id'] ?>">
+                    <div class="d-flex flex-column gap-2">
+                      <select class="form-select form-select-sm" name="priority_id">
+                        <option value="0">Priority</option>
+                        <?php foreach ($priorities as $p): ?>
+                          <option value="<?= (int)$p['priority_id'] ?>" <?= (int)$t['priority_id'] === (int)$p['priority_id'] ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($p['priority_name']) ?>
+                          </option>
+                        <?php endforeach; ?>
+                      </select>
+                      <select class="form-select form-select-sm" name="assigned_employee_id">
+                        <option value="0">Agent</option>
+                        <?php foreach ($employees as $e): ?>
+                          <option value="<?= (int)$e['admin_user_id'] ?>" <?= (int)$t['assigned_employee_id'] === (int)$e['admin_user_id'] ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($e['full_name']) ?>
+                          </option>
+                        <?php endforeach; ?>
+                      </select>
+                      <button class="btn btn-primary btn-sm w-100" type="submit">
+                        <span class="fas fa-check me-1"></span>Update
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+
+              <!-- Ticket Notes Section -->
+              <div class="card mb-3">
+                <div class="card-header bg-body-tertiary">
+                  <h6 class="mb-0">Ticket History & Notes</h6>
+                </div>
+                <div class="card-body p-x1">
+                  <?php if (empty($ticketNotes)): ?>
+                    <p class="text-500 fs-11 mb-3">No previous notes for this ticket.</p>
+                  <?php else: ?>
+                    <div class="scrollbar-overlay mb-3" style="max-height: 300px;">
+                      <?php foreach ($ticketNotes as $note): 
+                        $noteAuthor = $note['created_by_name'] ?: $note['created_by_username'] ?: 'System';
+                        $noteTime = new DateTime($note['created_at']);
+                        $now = new DateTime();
+                        $diff = $now->diff($noteTime);
+                        if ($diff->days > 0) $ago = $diff->days . 'd ago';
+                        elseif ($diff->h > 0) $ago = $diff->h . 'h ago';
+                        elseif ($diff->i > 0) $ago = $diff->i . 'm ago';
+                        else $ago = 'Just now';
+                      ?>
+                        <div class="border rounded p-2 mb-2 bg-body-tertiary">
+                          <div class="d-flex align-items-center justify-content-between gap-2 mb-1">
+                            <small class="fw-semi-bold fs-11 text-800"><?= htmlspecialchars($noteAuthor) ?></small>
+                            <span class="badge badge-subtle-secondary rounded-pill fs-11"><?= $ago ?></span>
+                          </div>
+                          <div class="fs-10 text-700"><?= nl2br(htmlspecialchars((string)$note['note_text'])) ?></div>
+                        </div>
+                      <?php endforeach; ?>
+                    </div>
+                  <?php endif; ?>
+
+                  <form method="post" action="all-tickets.php?<?= http_build_query($_GET) ?>#selected-ticket-details" class="mb-0">
+                    <input type="hidden" name="action" value="add_ticket_note">
+                    <input type="hidden" name="ticket_id" value="<?= (int)$t['ticket_id'] ?>">
+                    <div class="d-flex align-items-start gap-2">
+                      <textarea class="form-control form-control-sm flex-fill" name="note_text" rows="2" placeholder="Add a note..." required></textarea>
+                      <button class="btn btn-primary btn-sm" type="submit" title="Add note">
+                        <span class="fas fa-paper-plane"></span>
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+              <?php else: ?>
+                <div class="card bg-body-tertiary">
+                  <div class="card-body text-center py-4">
+                    <span class="fas fa-ticket-alt fs-2 text-300 mb-2"></span>
+                    <p class="fs-10 text-600 mb-0">Select a ticket from the list to view details.</p>
+                  </div>
+                </div>
+              <?php endif; ?>
             </div>
           </div>
           
@@ -847,7 +902,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const pid = this.value;
             const serialSel = this.closest('form').querySelector('.js-asset-serials');
             
-            fetch(`customer-details.php?id=<?= $customerId ?>&ajax_get_serials_${type}=1&pid=${pid}`)
+            const bid = this.closest('form').querySelector('[name="branch_id"]').value;
+            fetch(`customer-details.php?id=<?= $customerId ?>&ajax_get_serials_${type}=1&pid=${pid}&bid=${bid}`)
                 .then(r => r.json())
                 .then(data => {
                     serialSel.innerHTML = data.map(s => `<option value="${s.serial_id}">${s.serial_ref}</option>`).join('');
@@ -861,6 +917,23 @@ document.addEventListener('DOMContentLoaded', function() {
         if(window.Choices) new window.Choices(sel, { searchEnabled: true, itemSelectText: '' });
     });
 });
+
+function printThermalTicket(ticketId) {
+    if (!ticketId) return;
+    const printUrl = `<?= $appBasePath ?>/app/support-desk/print-ticket.php?ticket_id=${ticketId}`;
+    const printWindow = window.open(printUrl, 'Print Ticket', 'width=400,height=600');
+    if (printWindow) {
+        printWindow.onload = function() {
+            printWindow.print();
+        };
+    }
+}
+
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        // Optional: Show a toast or tooltip
+    });
+}
 </script>
                       </div>
                     </div>

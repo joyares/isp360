@@ -263,6 +263,11 @@ if (!function_exists('ispts_ensure_customers_table')) {
                 customer_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 username VARCHAR(120) NOT NULL,
                 phone_no VARCHAR(30) NOT NULL,
+                radious_id VARCHAR(120) NULL,
+                nid VARCHAR(120) NULL,
+                email VARCHAR(120) NULL,
+                full_name VARCHAR(255) NULL,
+                mobile VARCHAR(30) NULL,
                 registered_date DATE NOT NULL,
                 address TEXT NULL,
                 area VARCHAR(120) NULL,
@@ -286,6 +291,8 @@ if (!function_exists('ispts_ensure_customers_table')) {
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 UNIQUE KEY uk_customers_username (username),
+                UNIQUE KEY uk_customers_radious_id (radious_id),
+                UNIQUE KEY uk_customers_nid (nid),
                 KEY idx_customers_phone_no (phone_no),
                 KEY idx_customers_status (status)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
@@ -316,13 +323,31 @@ if (!function_exists('ispts_ensure_customers_table')) {
             'created_at' => "ALTER TABLE customers ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
             'updated_at' => "ALTER TABLE customers ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
             'status' => "ALTER TABLE customers ADD COLUMN status TINYINT(1) NOT NULL DEFAULT 1",
+            'radious_id' => "ALTER TABLE customers ADD COLUMN radious_id VARCHAR(120) NULL",
+            'nid' => "ALTER TABLE customers ADD COLUMN nid VARCHAR(120) NULL",
+            'email' => "ALTER TABLE customers ADD COLUMN email VARCHAR(120) NULL",
+            'full_name' => "ALTER TABLE customers ADD COLUMN full_name VARCHAR(255) NULL",
+            'mobile' => "ALTER TABLE customers ADD COLUMN mobile VARCHAR(30) NULL",
         ];
+
+        $addUniqueConstraint = static function (PDO $pdo, string $table, string $column): void {
+            $stmt = $pdo->prepare('SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND CONSTRAINT_NAME = :constraint');
+            $stmt->execute([':table' => $table, ':constraint' => 'uk_customers_' . $column]);
+            if ((int) $stmt->fetchColumn() === 0) {
+                try {
+                    $pdo->exec("ALTER TABLE {$table} ADD CONSTRAINT uk_customers_{$column} UNIQUE ({$column})");
+                } catch (\PDOException $e) {}
+            }
+        };
 
         foreach ($legacySafeColumns as $column => $sql) {
             if (!$hasColumn($pdo, 'customers', $column)) {
                 $pdo->exec($sql);
             }
         }
+
+        $addUniqueConstraint($pdo, 'customers', 'radious_id');
+        $addUniqueConstraint($pdo, 'customers', 'nid');
 
         // Backfill null legacy rows so list queries remain stable.
         $pdo->exec('UPDATE customers SET registered_date = CURDATE() WHERE registered_date IS NULL');

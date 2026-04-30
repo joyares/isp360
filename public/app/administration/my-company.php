@@ -1158,9 +1158,19 @@ try {
     $partnersTableExistsStmt->execute();
     $partnersTableExists = (int) $partnersTableExistsStmt->fetchColumn() > 0;
 
-    $partnersResolveColumn = static function (array $candidates) use ($ispts_has_column, $pdo): string {
+    $companiesTableExistsStmt = $pdo->prepare(
+      'SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table'
+    );
+    $companiesTableExistsStmt->bindValue(':table', 'companies');
+    $companiesTableExistsStmt->execute();
+    $companiesTableExists = (int) $companiesTableExistsStmt->fetchColumn() > 0;
+
+    $targetPartnerTable = $partnersTableExists ? 'partners' : ($companiesTableExists ? 'companies' : '');
+
+    $partnersResolveColumn = static function (array $candidates) use ($ispts_has_column, $pdo, $targetPartnerTable): string {
+      if ($targetPartnerTable === '') return '';
       foreach ($candidates as $candidate) {
-        if ($ispts_has_column($pdo, 'partners', $candidate)) {
+        if ($ispts_has_column($pdo, $targetPartnerTable, $candidate)) {
           return $candidate;
         }
       }
@@ -1168,25 +1178,25 @@ try {
       return '';
     };
 
-    $partnerIdJoinColumn = $partnersTableExists ? $partnersResolveColumn(['id', 'partner_id']) : '';
-    $partnerCompanyColumn = $partnersTableExists ? $partnersResolveColumn(['company', 'partner_name']) : '';
-    $partnerFirstNameColumn = $partnersTableExists ? $partnersResolveColumn(['firstname', 'first_name']) : '';
-    $partnerLastNameColumn = $partnersTableExists ? $partnersResolveColumn(['lastname', 'last_name']) : '';
-    $partnerUsernameColumn = $partnersTableExists ? $partnersResolveColumn(['username']) : '';
-    $partnerPhoneColumn = $partnersTableExists ? $partnersResolveColumn(['phone', 'mobile']) : '';
-    $partnerEmailColumn = $partnersTableExists ? $partnersResolveColumn(['email']) : '';
-    $partnerAddressColumn = $partnersTableExists ? $partnersResolveColumn(['address']) : '';
-    $partnerLogoMainColumn = $partnersTableExists ? $partnersResolveColumn(['logo_main', 'main_logo']) : '';
-    $partnerContactImageColumn = $partnersTableExists ? $partnersResolveColumn(['contact_person_img', 'avatar']) : '';
-    $partnerContactNameColumn = $partnersTableExists ? $partnersResolveColumn(['contact_person_name']) : '';
-    $partnerContactPhoneColumn = $partnersTableExists ? $partnersResolveColumn(['contact_person_phone']) : '';
-    $partnerContactAltPhoneColumn = $partnersTableExists ? $partnersResolveColumn(['contact_person_alt_phone']) : '';
-    $partnerContactEmailColumn = $partnersTableExists ? $partnersResolveColumn(['contact_person_email']) : '';
-    $partnerBranchAccessColumn = $partnersTableExists ? $partnersResolveColumn(['branch_access_type']) : '';
-    $partnerAccessColumn = $partnersTableExists ? $partnersResolveColumn(['partner_access_type']) : '';
-    $partnerUserTypeColumn = $partnersTableExists ? $partnersResolveColumn(['user_type']) : '';
-    $partnerRoleIdColumn = $partnersTableExists ? $partnersResolveColumn(['roleId', 'role_id']) : '';
-    $partnerDeletedCondition = ($partnersTableExists && $ispts_has_column($pdo, 'partners', 'deleted_at')) ? ' AND p.deleted_at IS NULL' : '';
+    $partnerIdJoinColumn = $targetPartnerTable !== '' ? $partnersResolveColumn(['id', 'partner_id']) : '';
+    $partnerCompanyColumn = $targetPartnerTable !== '' ? $partnersResolveColumn(['company', 'partner_name']) : '';
+    $partnerFirstNameColumn = $targetPartnerTable !== '' ? $partnersResolveColumn(['firstname', 'first_name']) : '';
+    $partnerLastNameColumn = $targetPartnerTable !== '' ? $partnersResolveColumn(['lastname', 'last_name']) : '';
+    $partnerUsernameColumn = $targetPartnerTable !== '' ? $partnersResolveColumn(['username']) : '';
+    $partnerPhoneColumn = $targetPartnerTable !== '' ? $partnersResolveColumn(['phone', 'mobile']) : '';
+    $partnerEmailColumn = $targetPartnerTable !== '' ? $partnersResolveColumn(['email']) : '';
+    $partnerAddressColumn = $targetPartnerTable !== '' ? $partnersResolveColumn(['address']) : '';
+    $partnerLogoMainColumn = $targetPartnerTable !== '' ? $partnersResolveColumn(['logo_main', 'main_logo']) : '';
+    $partnerContactImageColumn = $targetPartnerTable !== '' ? $partnersResolveColumn(['contact_person_img', 'avatar']) : '';
+    $partnerContactNameColumn = $targetPartnerTable !== '' ? $partnersResolveColumn(['contact_person_name']) : '';
+    $partnerContactPhoneColumn = $targetPartnerTable !== '' ? $partnersResolveColumn(['contact_person_phone']) : '';
+    $partnerContactAltPhoneColumn = $targetPartnerTable !== '' ? $partnersResolveColumn(['contact_person_alt_phone']) : '';
+    $partnerContactEmailColumn = $targetPartnerTable !== '' ? $partnersResolveColumn(['contact_person_email']) : '';
+    $partnerBranchAccessColumn = $targetPartnerTable !== '' ? $partnersResolveColumn(['branch_access_type']) : '';
+    $partnerAccessColumn = $targetPartnerTable !== '' ? $partnersResolveColumn(['partner_access_type']) : '';
+    $partnerUserTypeColumn = $targetPartnerTable !== '' ? $partnersResolveColumn(['user_type']) : '';
+    $partnerRoleIdColumn = $targetPartnerTable !== '' ? $partnersResolveColumn(['roleId', 'role_id']) : '';
+    $partnerDeletedCondition = ($targetPartnerTable !== '' && $ispts_has_column($pdo, $targetPartnerTable, 'deleted_at')) ? ' AND p.deleted_at IS NULL' : '';
 
     $rolesTableExistsStmt = $pdo->prepare(
       'SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table'
@@ -1210,8 +1220,12 @@ try {
     }
 
     $partnerJoin = '';
-    if ($partnersTableExists && $branchPartnerRefColumn !== '' && $partnerIdJoinColumn !== '') {
-      $partnerJoin = ' LEFT JOIN partners p ON p.' . $partnerIdJoinColumn . ' = b.' . $branchPartnerRefColumn . $partnerDeletedCondition;
+    if ($targetPartnerTable !== '' && $branchPartnerRefColumn !== '' && $partnerIdJoinColumn !== '') {
+      $partnerJoin = ' LEFT JOIN ' . $targetPartnerTable . ' p ON p.' . $partnerIdJoinColumn . ' = b.' . $branchPartnerRefColumn;
+      if ($targetPartnerTable === 'companies') {
+        $partnerJoin .= ' AND p.company_type = \'partner\'';
+      }
+      $partnerJoin .= $partnerDeletedCondition;
     }
 
     $rolesJoin = '';
@@ -2160,7 +2174,7 @@ require '../../includes/header.php';
                 $isStaticBranchCard = $branchCardId === 1;
                 $branchMainLogoUrl = !empty($branch['partner_logo_main']) ? $appBasePath . '/' . ltrim((string) $branch['partner_logo_main'], '/') : '';
                 if ($isStaticBranchCard) {
-                  $branchMainLogoUrl = $appBasePath . '/assets/uploads/companies/main_20260425160946_24f1639f.png';
+                  $branchMainLogoUrl = $appBasePath . '/assets/uploads/companies/main_20260426071101_3ef4b272.png';
                 }
                 $branchContactImageValue = (string) ($branch['partner_contact_person_img'] ?? '');
                 $branchContactImageUrl = $branchContactImageValue !== '' ? $appBasePath . '/' . ltrim($branchContactImageValue, '/') : '';
@@ -2178,7 +2192,7 @@ require '../../includes/header.php';
                   $partnerTitle = $partnerFullName !== '' ? $partnerFullName : (string) ($branch['partner_username'] ?? '-');
                 }
                 if ($isStaticBranchCard) {
-                  $partnerTitle = $branchDisplayCompany !== '' ? $branchDisplayCompany : 'Bestnet';
+                  $partnerTitle = $branchDisplayCompany !== '' ? $branchDisplayCompany : 'Friends online Bd';
                 }
 
                 $displayPhone = (string) (($branch['branch_mobile'] ?? '') !== '' ? $branch['branch_mobile'] : ($branch['partner_phone'] ?? ''));
