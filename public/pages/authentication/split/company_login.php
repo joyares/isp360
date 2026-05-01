@@ -8,8 +8,6 @@ error_reporting(E_ALL);
 
 require_once __DIR__ . '/../../../includes/auth.php';
 
-use PDO;
-
 
 $appBasePath = ispts_resolve_app_base_path(dirname(__DIR__, 3));
 

@@ -5,7 +5,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../app/Core/Database.php';
 
 use App\Core\Database;
-use PDO;
 
 
 if (!function_exists('ispts_start_session')) {
