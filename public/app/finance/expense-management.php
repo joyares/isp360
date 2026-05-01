@@ -128,6 +128,7 @@ $pdo->exec(
         reference_no VARCHAR(120) NULL,
         created_by_user_id BIGINT UNSIGNED NULL,
         created_by_name VARCHAR(180) NULL,
+        update_count INT UNSIGNED NOT NULL DEFAULT 0,
         status TINYINT(1) NOT NULL DEFAULT 1,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -175,6 +176,23 @@ $pdo->exec(
 
       if (!$trxUniqueIndexExists) {
         $pdo->exec('ALTER TABLE finance_expenses ADD UNIQUE KEY uk_finance_expenses_trx_id (trx_id)');
+      }
+
+      $updateCountColumnExistsStmt = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = :schema
+           AND TABLE_NAME = :table_name
+           AND COLUMN_NAME = :column_name'
+      );
+      $updateCountColumnExistsStmt->bindValue(':schema', $databaseName);
+      $updateCountColumnExistsStmt->bindValue(':table_name', 'finance_expenses');
+      $updateCountColumnExistsStmt->bindValue(':column_name', 'update_count');
+      $updateCountColumnExistsStmt->execute();
+      $updateCountColumnExists = (int) $updateCountColumnExistsStmt->fetchColumn() > 0;
+
+      if (!$updateCountColumnExists) {
+        $pdo->exec('ALTER TABLE finance_expenses ADD COLUMN update_count INT UNSIGNED NOT NULL DEFAULT 0 AFTER created_by_name');
       }
     }
 
@@ -380,6 +398,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                      payment_method = :payment_method,
                      note = :note,
                      reference_no = :reference_no,
+                     update_count = update_count + 1,
                      status = :status
                    WHERE expense_id = :expense_id'
                 );
