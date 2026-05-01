@@ -41,9 +41,27 @@ $pdo->exec(
     }
   };
 
-  $ensureColumn($pdo, $columnCheckStmt, 'role_type', 'role_type VARCHAR(60) NULL AFTER role_name');
-  $ensureColumn($pdo, $columnCheckStmt, 'role_description', 'role_description TEXT NULL AFTER role_type');
-  $ensureColumn($pdo, $columnCheckStmt, 'menu_tree_json', 'menu_tree_json JSON NULL AFTER role_description');
+    try {
+      $ensureColumn($pdo, $columnCheckStmt, 'role_type', 'role_type VARCHAR(60) NULL AFTER role_name');
+      $ensureColumn($pdo, $columnCheckStmt, 'role_description', 'role_description TEXT NULL AFTER role_type');
+      $ensureColumn($pdo, $columnCheckStmt, 'menu_tree_json', 'menu_tree_json JSON NULL AFTER role_description');
+    } catch (\Throwable $ignoredSchemaSyncError) {
+      // Continue with available columns instead of crashing the page.
+    }
+
+    $availableColumnsStmt = $pdo->query('SHOW COLUMNS FROM roles');
+    $availableColumns = [];
+    foreach ($availableColumnsStmt->fetchAll(PDO::FETCH_ASSOC) as $columnMeta) {
+      $fieldName = (string) ($columnMeta['Field'] ?? '');
+      if ($fieldName !== '') {
+        $availableColumns[$fieldName] = true;
+      }
+    }
+
+    $hasRoleTypeColumn = isset($availableColumns['role_type']);
+    $hasRoleDescriptionColumn = isset($availableColumns['role_description']);
+    $hasMenuTreeJsonColumn = isset($availableColumns['menu_tree_json']);
+    $hasCreatedAtColumn = isset($availableColumns['created_at']);
 
 function ispts_slugify(string $value): string
 {
@@ -115,21 +133,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $menuTreeJson = json_encode($menuAccess, JSON_UNESCAPED_SLASHES);
 
             if ($incomingRoleId > 0) {
-                $updateStmt = $pdo->prepare(
-                    'UPDATE roles
-                     SET role_name = :role_name,
-                         role_slug = :role_slug,
-                         role_type = :role_type,
-                         role_description = :role_description,
-                         menu_tree_json = :menu_tree_json,
-                         status = :status
-                     WHERE role_id = :role_id'
-                );
+              $updateSetParts = [
+                'role_name = :role_name',
+                'role_slug = :role_slug',
+                'status = :status',
+              ];
+
+              if ($hasRoleTypeColumn) {
+                $updateSetParts[] = 'role_type = :role_type';
+              }
+              if ($hasRoleDescriptionColumn) {
+                $updateSetParts[] = 'role_description = :role_description';
+              }
+              if ($hasMenuTreeJsonColumn) {
+                $updateSetParts[] = 'menu_tree_json = :menu_tree_json';
+              }
+
+              $updateStmt = $pdo->prepare(
+                'UPDATE roles
+                 SET ' . implode(', ', $updateSetParts) . '
+                 WHERE role_id = :role_id'
+              );
                 $updateStmt->bindValue(':role_name', $roleName);
                 $updateStmt->bindValue(':role_slug', $roleSlug);
+              if ($hasRoleTypeColumn) {
                 $updateStmt->bindValue(':role_type', $roleType);
+              }
+              if ($hasRoleDescriptionColumn) {
                 $updateStmt->bindValue(':role_description', $roleDescription);
+              }
+              if ($hasMenuTreeJsonColumn) {
                 $updateStmt->bindValue(':menu_tree_json', $menuTreeJson);
+              }
                 $updateStmt->bindValue(':status', $status, PDO::PARAM_INT);
                 $updateStmt->bindValue(':role_id', $incomingRoleId, PDO::PARAM_INT);
                 $updateStmt->execute();
@@ -138,15 +173,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
             }
 
+            $insertColumns = ['role_name', 'role_slug', 'status'];
+            $insertValues = [':role_name', ':role_slug', ':status'];
+            if ($hasRoleTypeColumn) {
+              $insertColumns[] = 'role_type';
+              $insertValues[] = ':role_type';
+            }
+            if ($hasRoleDescriptionColumn) {
+              $insertColumns[] = 'role_description';
+              $insertValues[] = ':role_description';
+            }
+            if ($hasMenuTreeJsonColumn) {
+              $insertColumns[] = 'menu_tree_json';
+              $insertValues[] = ':menu_tree_json';
+            }
+
             $insertStmt = $pdo->prepare(
-                'INSERT INTO roles (role_name, role_slug, role_type, role_description, menu_tree_json, status)
-                 VALUES (:role_name, :role_slug, :role_type, :role_description, :menu_tree_json, :status)'
+              'INSERT INTO roles (' . implode(', ', $insertColumns) . ')
+               VALUES (' . implode(', ', $insertValues) . ')'
             );
             $insertStmt->bindValue(':role_name', $roleName);
             $insertStmt->bindValue(':role_slug', $roleSlug);
-            $insertStmt->bindValue(':role_type', $roleType);
-            $insertStmt->bindValue(':role_description', $roleDescription);
-            $insertStmt->bindValue(':menu_tree_json', $menuTreeJson);
+            if ($hasRoleTypeColumn) {
+              $insertStmt->bindValue(':role_type', $roleType);
+            }
+            if ($hasRoleDescriptionColumn) {
+              $insertStmt->bindValue(':role_description', $roleDescription);
+            }
+            if ($hasMenuTreeJsonColumn) {
+              $insertStmt->bindValue(':menu_tree_json', $menuTreeJson);
+            }
             $insertStmt->bindValue(':status', $status, PDO::PARAM_INT);
             $insertStmt->execute();
 
@@ -183,8 +239,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $editRole = null;
 $selectedMenuKeys = [];
 if ($editRoleId > 0) {
+  $editSelectParts = [
+    'role_id',
+    'role_name',
+    'status',
+  ];
+  $editSelectParts[] = $hasRoleTypeColumn ? 'role_type' : "'' AS role_type";
+  $editSelectParts[] = $hasRoleDescriptionColumn ? 'role_description' : "'' AS role_description";
+  $editSelectParts[] = $hasMenuTreeJsonColumn ? 'menu_tree_json' : "'[]' AS menu_tree_json";
+
     $editStmt = $pdo->prepare(
-        'SELECT role_id, role_name, role_type, role_description, status, menu_tree_json
+    'SELECT ' . implode(', ', $editSelectParts) . '
          FROM roles
          WHERE role_id = :role_id
          LIMIT 1'
@@ -223,7 +288,12 @@ $formValues = [
   $isSuperDaddyRole = false; // Always allow editing for Super Daddy
 
 $listStmt = $pdo->query(
-    'SELECT role_id, role_name, role_type, role_description, status, created_at
+  'SELECT role_id,
+      role_name,
+      ' . ($hasRoleTypeColumn ? 'role_type' : "''") . ' AS role_type,
+      ' . ($hasRoleDescriptionColumn ? 'role_description' : "''") . ' AS role_description,
+      status,
+      ' . ($hasCreatedAtColumn ? 'created_at' : 'NULL') . ' AS created_at
      FROM roles
      ORDER BY role_id DESC'
 );
@@ -308,7 +378,13 @@ require '../../includes/header.php';
                         <span class="badge badge-subtle-primary ms-1">Selected</span>
                       <?php endif; ?>
                     </td>
-                    <td><?= htmlspecialchars(date('Y-m-d', strtotime((string) $role['created_at']))) ?></td>
+                    <td>
+                      <?php if (!empty($role['created_at'])): ?>
+                        <?= htmlspecialchars(date('Y-m-d', strtotime((string) $role['created_at']))) ?>
+                      <?php else: ?>
+                        -
+                      <?php endif; ?>
+                    </td>
                     <td><?= htmlspecialchars((string) ($role['role_description'] ?: '-')) ?></td>
                   </tr>
                 <?php endforeach; ?>
