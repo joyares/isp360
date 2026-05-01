@@ -123,8 +123,7 @@ if (empty($billingStartSource)) {
   $billingStartSource = $customer['created_at'] ?? null;
 }
 
-$billingStart = !empty($billingStartSource) ? new DateTime((string) $billingStartSource) : new DateTime('now');
-$billingStart->modify('first day of next month');
+$billingStart = new DateTime('first day of this month');
 
 $billingEnd = new DateTime('first day of this month');
 
@@ -155,6 +154,40 @@ $billingRows = array_reverse($billingRows);
 
 $billingPaidCount = count(array_filter($billingRows, static fn($r) => $r['status'] === 'paid'));
 $billingUnpaidCount = count($billingRows) - $billingPaidCount;
+
+$customerInvoiceStmt = $pdo->prepare(
+  'SELECT fi.income_id,
+    fi.trx_id,
+    fi.income_date,
+    fi.grand_total,
+    fi.payment_method,
+    fi.reference_no,
+    fi.payment_status,
+    fi.created_by_name,
+    fa.account_name,
+    c.company,
+    GROUP_CONCAT(fii.description ORDER BY fii.income_item_id SEPARATOR ", ") AS item_descriptions
+  FROM finance_incomes fi
+  LEFT JOIN finance_accounts fa ON fa.account_id = fi.account_id
+  LEFT JOIN companies c ON c.id = fi.company_id
+  LEFT JOIN finance_income_items fii ON fii.income_id = fi.income_id AND fii.status = 1
+  WHERE fi.status = 1 AND fi.customer_id = :customer_id
+  GROUP BY fi.income_id,
+    fi.trx_id,
+    fi.income_date,
+    fi.grand_total,
+    fi.payment_method,
+    fi.reference_no,
+    fi.payment_status,
+    fi.created_by_name,
+    fa.account_name,
+    c.company
+  ORDER BY fi.income_date DESC, fi.income_id DESC'
+);
+$customerInvoiceStmt->bindValue(':customer_id', $customerId, PDO::PARAM_INT);
+$customerInvoiceStmt->execute();
+$invoiceRows = $customerInvoiceStmt->fetchAll(PDO::FETCH_ASSOC);
+$invoiceCount = count($invoiceRows);
 
 $branches = $pdo->query('SELECT branch_id, branch_name FROM branches WHERE status = 1 ORDER BY branch_name ASC')->fetchAll(PDO::FETCH_ASSOC);
 
@@ -518,6 +551,12 @@ require '../../includes/header.php';
               data-bs-toggle="tab" href="#billing" role="tab" aria-controls="billing" aria-selected="false"><span
                 class="fas fa-file-invoice-dollar icon"></span>
               <h6 class="mb-0 text-600">Billing</h6>
+            </a></li>
+          <li class="nav-item text-nowrap" role="presentation"><a
+              class="nav-link mb-0 d-flex align-items-center gap-2 py-3 px-x1" id="contact-invoices-tab"
+              data-bs-toggle="tab" href="#invoices" role="tab" aria-controls="invoices" aria-selected="false"><span
+                class="fas fa-receipt icon"></span>
+              <h6 class="mb-0 text-600">Invoices</h6>
             </a></li>
         </ul>
       </div>
@@ -906,6 +945,69 @@ require '../../includes/header.php';
                 </div>
               </div>
               <div class="col-lg-4">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-body tab-pane p-0" id="invoices" role="tabpanel" aria-labelledby="contact-invoices-tab">
+          <div class="bg-body-tertiary p-x1">
+            <div class="card shadow-none">
+              <div class="card-header bg-white border-bottom border-200 py-2 d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">Customer Invoices</h6>
+                <span class="badge badge-subtle-primary fs-11">Total: <?= $invoiceCount ?></span>
+              </div>
+              <div class="card-body p-0">
+                <div class="table-responsive">
+                  <table class="table table-sm table-striped fs-11 mb-0">
+                    <thead class="bg-200">
+                      <tr>
+                        <th class="ps-x1">Action</th>
+                        <th>Invoice ID</th>
+                        <th>Date</th>
+                        <th>Company</th>
+                        <th>Account</th>
+                        <th>Details</th>
+                        <th>Total</th>
+                        <th>Method</th>
+                        <th>Reference</th>
+                        <th class="pe-x1 text-end">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <?php if (empty($invoiceRows)): ?>
+                        <tr>
+                          <td colspan="10" class="text-center py-3 text-500">No invoices found for this customer.</td>
+                        </tr>
+                      <?php else: ?>
+                        <?php foreach ($invoiceRows as $invoice): ?>
+                          <tr>
+                            <td class="ps-x1">
+                              <a class="btn btn-link p-0" href="<?= $appBasePath ?>/app/finance/income-management.php?edit_income=<?= (int) $invoice['income_id'] ?>" data-bs-toggle="tooltip" data-bs-placement="top" title="View invoice">
+                                <span class="fas fa-eye text-primary"></span>
+                              </a>
+                            </td>
+                            <td><?= htmlspecialchars((string) ($invoice['trx_id'] ?? '-')) ?></td>
+                            <td class="text-nowrap"><?= date('M d, Y', strtotime((string) $invoice['income_date'])) ?></td>
+                            <td><?= htmlspecialchars((string) ($invoice['company'] ?? '-')) ?></td>
+                            <td><?= htmlspecialchars((string) ($invoice['account_name'] ?? '-')) ?></td>
+                            <td class="text-wrap"><?= htmlspecialchars((string) ($invoice['item_descriptions'] ?? '-')) ?></td>
+                            <td class="fw-semi-bold">Tk <?= number_format((float) ($invoice['grand_total'] ?? 0), 2) ?></td>
+                            <td><?= htmlspecialchars((string) ($invoice['payment_method'] ?? '-')) ?></td>
+                            <td><?= htmlspecialchars((string) (($invoice['reference_no'] ?? '') !== '' ? $invoice['reference_no'] : '-')) ?></td>
+                            <td class="pe-x1 text-end">
+                              <?php if ((string) ($invoice['payment_status'] ?? 'unpaid') === 'paid'): ?>
+                                <span class="badge badge-subtle-success fs-11">PAID</span>
+                              <?php else: ?>
+                                <span class="badge badge-subtle-warning fs-11">UNPAID</span>
+                              <?php endif; ?>
+                            </td>
+                          </tr>
+                        <?php endforeach; ?>
+                      <?php endif; ?>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>

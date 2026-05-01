@@ -9,6 +9,20 @@ use App\Core\Database;
 
 $pdo = Database::getConnection();
 
+$pdo->exec(
+    "CREATE TABLE IF NOT EXISTS finance_accounts (
+        account_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        company_id INT UNSIGNED NOT NULL,
+        account_name VARCHAR(180) NOT NULL,
+        status TINYINT(1) NOT NULL DEFAULT 1,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_finance_accounts_company_name (company_id, account_name),
+        KEY idx_finance_accounts_company (company_id),
+        KEY idx_finance_accounts_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+);
+
 if (!function_exists('ispts_income_trx_part')) {
   function ispts_income_trx_part(string $label): string
   {
@@ -95,6 +109,7 @@ $form = [
   'discount_amount' => '0',
   'reference_no' => '',
   'note' => '',
+  'get_payment' => 0,
   'status' => 1,
 ];
 $formItems = [];
@@ -136,10 +151,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       'account_id' => isset($_POST['account_id']) ? (int) $_POST['account_id'] : 0,
       'customer_id' => isset($_POST['customer_id']) ? (int) $_POST['customer_id'] : 0,
       'income_date' => (string) ($_POST['income_date'] ?? date('Y-m-d')),
-      'payment_method' => trim((string) ($_POST['payment_method'] ?? 'Cash')),
+      'payment_method' => trim((string) ($_POST['payment_method'] ?? '')),
       'discount_amount' => trim((string) ($_POST['discount_amount'] ?? '0')),
       'reference_no' => trim((string) ($_POST['reference_no'] ?? '')),
       'note' => trim((string) ($_POST['note'] ?? '')),
+      'get_payment' => isset($_POST['get_payment']) ? 1 : 0,
       'status' => isset($_POST['status']) ? 1 : 0,
     ];
 
@@ -147,7 +163,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $accountId = (int) $form['account_id'];
     $customerId = (int) $form['customer_id'];
     $incomeDate = (string) $form['income_date'];
-    $paymentMethod = (string) $form['payment_method'];
+    $getPayment = (int) $form['get_payment'] === 1;
+    $paymentMethod = $getPayment ? (string) $form['payment_method'] : '';
     $discountAmount = is_numeric($form['discount_amount']) ? (float) $form['discount_amount'] : -1;
 
     $accountCompanyId = 0;
@@ -183,7 +200,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $amountRaw = trim((string) ($row['amount'] ?? '0'));
         $amount = is_numeric($amountRaw) ? (float) $amountRaw : -1;
 
-        if (!in_array($itemType, ['monthly_bill', 'product', 'other_charge'], true)) {
+        if (!in_array($itemType, ['monthly_bill', 'product', 'deposit', 'other_charge'], true)) {
           continue;
         }
         if ($amount <= 0) {
@@ -220,7 +237,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $alert = ['type' => 'danger', 'message' => 'Please select a customer.'];
     } elseif ($incomeDate === '' || strtotime($incomeDate) === false) {
       $alert = ['type' => 'danger', 'message' => 'Please select a valid income date.'];
-    } elseif (!in_array($paymentMethod, $paymentMethods, true)) {
+    } elseif ($getPayment && !in_array($paymentMethod, $paymentMethods, true)) {
       $alert = ['type' => 'danger', 'message' => 'Please select a valid payment method.'];
     } elseif ($discountAmount < 0) {
       $alert = ['type' => 'danger', 'message' => 'Discount must be zero or a positive number.'];
@@ -259,6 +276,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                  grand_total = :grand_total,
                  note = :note,
                  reference_no = :reference_no,
+               payment_status = :payment_status,
+               paid_at = :paid_at,
                  status = :status,
                  update_count = update_count + 1
              WHERE income_id = :income_id'
@@ -274,7 +293,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           $updateStmt->bindValue(':grand_total', number_format($grandTotal, 2, '.', ''));
           $updateStmt->bindValue(':note', $form['note'] !== '' ? $form['note'] : null, PDO::PARAM_STR);
           $updateStmt->bindValue(':reference_no', $form['reference_no'] !== '' ? $form['reference_no'] : null, PDO::PARAM_STR);
-          $updateStmt->bindValue(':status', (int) $form['status'], PDO::PARAM_INT);
+          $updateStmt->bindValue(':payment_status', $getPayment ? 'paid' : 'unpaid');
+          if ($getPayment) {
+            $paidAt = !empty($currentIncome['paid_at']) ? (string) $currentIncome['paid_at'] : date('Y-m-d H:i:s');
+            $updateStmt->bindValue(':paid_at', $paidAt);
+          } else {
+            $updateStmt->bindValue(':paid_at', null, PDO::PARAM_NULL);
+          }
+          $updateStmt->bindValue(':status', 1, PDO::PARAM_INT);
           $updateStmt->bindValue(':income_id', $incomeId, PDO::PARAM_INT);
           $updateStmt->execute();
 
@@ -334,11 +360,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           $insertStmt->bindValue(':grand_total', number_format($grandTotal, 2, '.', ''));
           $insertStmt->bindValue(':note', $form['note'] !== '' ? $form['note'] : null, PDO::PARAM_STR);
           $insertStmt->bindValue(':reference_no', $form['reference_no'] !== '' ? $form['reference_no'] : null, PDO::PARAM_STR);
-          $insertStmt->bindValue(':payment_status', 'unpaid');
-          $insertStmt->bindValue(':paid_at', null, PDO::PARAM_NULL);
+          $insertStmt->bindValue(':payment_status', $getPayment ? 'paid' : 'unpaid');
+          if ($getPayment) {
+            $insertStmt->bindValue(':paid_at', date('Y-m-d H:i:s'));
+          } else {
+            $insertStmt->bindValue(':paid_at', null, PDO::PARAM_NULL);
+          }
           $insertStmt->bindValue(':created_by_user_id', $createdByUserId > 0 ? $createdByUserId : null, PDO::PARAM_INT);
           $insertStmt->bindValue(':created_by_name', $createdByName);
-          $insertStmt->bindValue(':status', (int) $form['status'], PDO::PARAM_INT);
+          $insertStmt->bindValue(':status', 1, PDO::PARAM_INT);
           $insertStmt->execute();
 
           $incomeId = (int) $pdo->lastInsertId();
@@ -531,6 +561,7 @@ if ($editIncomeId > 0) {
         customer_id,
         income_date,
         payment_method,
+        payment_status,
         discount_amount,
         reference_no,
         note,
@@ -553,7 +584,7 @@ if ($editIncomeId > 0) {
       'discount_amount' => (string) $editRow['discount_amount'],
       'reference_no' => (string) ($editRow['reference_no'] ?? ''),
       'note' => (string) ($editRow['note'] ?? ''),
-      'status' => (int) $editRow['status'],
+      'get_payment' => (string) ($editRow['payment_status'] ?? 'unpaid') === 'paid' ? 1 : 0,
     ];
 
     $itemStmt = $pdo->prepare(
@@ -808,7 +839,7 @@ require '../../includes/header.php';
 
   <div class="col-12 col-md-4 col-xxl-4">
     <div class="card h-100">
-      <div class="card-header border-bottom border-200"><h6 class="mb-0"><?= (int) $form['income_id'] > 0 ? 'Update Income Bill' : 'Add Income' ?></h6></div>
+      <div class="card-header border-bottom border-200"><h6 class="mb-0"><?= (int) $form['income_id'] > 0 ? 'Update Invoice' : 'Add Invoice' ?></h6></div>
       <div class="card-body">
         <form class="row g-2" method="post" action="<?= $appBasePath ?>/app/finance/income-management.php" id="income-form">
           <?= ispts_csrf_field() ?>
@@ -888,18 +919,6 @@ require '../../includes/header.php';
           </div>
 
           <div class="col-12">
-            <label class="form-label" for="income-payment-method">Payment Method</label>
-            <select class="form-select" id="income-payment-method" name="payment_method" required>
-              <option value="" disabled>Select payment method</option>
-              <?php foreach ($paymentMethods as $method): ?>
-                <option value="<?= htmlspecialchars($method) ?>" <?= (string) $form['payment_method'] === $method ? 'selected' : '' ?>>
-                  <?= htmlspecialchars($method) ?>
-                </option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-
-          <div class="col-12">
             <div class="d-flex align-items-center justify-content-between mb-2">
               <label class="form-label mb-0">Income Items</label>
               <button class="btn btn-falcon-default btn-sm" type="button" id="add-income-item">Add Item</button>
@@ -917,7 +936,7 @@ require '../../includes/header.php';
                 <tbody id="income-items-body"></tbody>
               </table>
             </div>
-            <div class="fs-11 text-600 mt-1">Type options: Monthly Bill, Product, Other Charge.</div>
+            <div class="fs-11 text-600 mt-1">Type options: Monthly Bill, Product, Deposit, Other Charge.</div>
           </div>
 
           <div class="col-12">
@@ -947,16 +966,28 @@ require '../../includes/header.php';
 
           <div class="col-12">
             <div class="d-flex align-items-center justify-content-between">
-              <label class="form-label mb-0" for="income-status">Status</label>
+              <label class="form-label mb-0" for="income-get-payment">Get Payment</label>
               <div class="form-check form-switch m-0">
-                <input class="form-check-input" id="income-status" type="checkbox" name="status" value="1" <?= (int) $form['status'] === 1 ? 'checked' : '' ?>>
+                <input class="form-check-input" id="income-get-payment" type="checkbox" name="get_payment" value="1" <?= (int) $form['get_payment'] === 1 ? 'checked' : '' ?>>
               </div>
             </div>
           </div>
 
+          <div class="col-12 d-none" id="payment-method-wrap">
+            <label class="form-label" for="income-payment-method">Payment Method</label>
+            <select class="form-select" id="income-payment-method" name="payment_method">
+              <option value="" disabled <?= trim((string) $form['payment_method']) === '' ? 'selected' : '' ?>>Select payment method</option>
+              <?php foreach ($paymentMethods as $method): ?>
+                <option value="<?= htmlspecialchars($method) ?>" <?= (string) $form['payment_method'] === $method ? 'selected' : '' ?>>
+                  <?= htmlspecialchars($method) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+
           <div class="col-12 d-flex justify-content-end gap-2">
             <a class="btn btn-falcon-default btn-sm" href="<?= $appBasePath ?>/app/finance/income-management.php">Reset</a>
-            <button class="btn btn-primary btn-sm" type="submit">Generate Bill</button>
+            <button class="btn btn-primary btn-sm" type="submit">Generate Invoice</button>
           </div>
         </form>
       </div>
@@ -985,9 +1016,28 @@ require '../../includes/header.php';
   var viewCustomerLink = document.getElementById('view-customer-link');
   var copyCustomerName = document.getElementById('copy-customer-name');
   var copyCustomerPhone = document.getElementById('copy-customer-phone');
+  var getPaymentInput = document.getElementById('income-get-payment');
+  var paymentMethodWrap = document.getElementById('payment-method-wrap');
+  var paymentMethodSelect = document.getElementById('income-payment-method');
 
   if (!form || !customerSelect || !addItemBtn || !itemsBody || !discountInput || !summaryTotalEl || !grandTotalEl) {
     return;
+  }
+
+  function syncPaymentMethodState() {
+    if (!getPaymentInput || !paymentMethodWrap || !paymentMethodSelect) {
+      return;
+    }
+
+    var enabled = !!getPaymentInput.checked;
+    paymentMethodWrap.classList.toggle('d-none', !enabled);
+    paymentMethodSelect.required = enabled;
+
+    if (!enabled) {
+      paymentMethodSelect.value = '';
+    } else if (!paymentMethodSelect.value && paymentMethodSelect.options.length > 1) {
+      paymentMethodSelect.selectedIndex = 1;
+    }
   }
 
   if (window.Choices) {
@@ -1272,6 +1322,7 @@ require '../../includes/header.php';
       '  <select class="form-select form-select-sm js-item-type" name="items[' + idx + '][item_type]" required>' +
       '    <option value="monthly_bill"' + (itemType === 'monthly_bill' ? ' selected' : '') + '>Monthly Bill</option>' +
       '    <option value="product"' + (itemType === 'product' ? ' selected' : '') + '>Product</option>' +
+      '    <option value="deposit"' + (itemType === 'deposit' ? ' selected' : '') + '>Deposit</option>' +
       '    <option value="other_charge"' + (itemType === 'other_charge' ? ' selected' : '') + '>Other Charge</option>' +
       '  </select>' +
       '</td>' +
@@ -1343,6 +1394,9 @@ require '../../includes/header.php';
   });
 
   discountInput.addEventListener('input', recalcTotals);
+  if (getPaymentInput) {
+    getPaymentInput.addEventListener('change', syncPaymentMethodState);
+  }
 
   if (Array.isArray(INITIAL_ITEMS) && INITIAL_ITEMS.length > 0) {
     INITIAL_ITEMS.forEach(function (item) {
@@ -1359,6 +1413,7 @@ require '../../includes/header.php';
   }
 
   updateCustomerPreview();
+  syncPaymentMethodState();
   recalcTotals();
 })();
 </script>
