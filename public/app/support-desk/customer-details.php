@@ -136,16 +136,75 @@ if ($billingText !== '') {
   }
 }
 
+$paidAmountByMonth = [];
+$monthlyItemPaidStmt = $pdo->prepare(
+  "SELECT fii.description, fii.amount
+   FROM finance_incomes fi
+   INNER JOIN finance_income_items fii ON fii.income_id = fi.income_id
+   WHERE fi.status = 1
+     AND fi.customer_id = :customer_id
+     AND fi.payment_status = 'paid'
+     AND fii.status = 1
+     AND fii.item_type = 'monthly_bill'"
+);
+$monthlyItemPaidStmt->bindValue(':customer_id', $customerId, PDO::PARAM_INT);
+$monthlyItemPaidStmt->execute();
+$monthlyItemPaidRows = $monthlyItemPaidStmt->fetchAll(PDO::FETCH_ASSOC);
+
+foreach ($monthlyItemPaidRows as $monthlyItemPaidRow) {
+  $itemDescription = (string) ($monthlyItemPaidRow['description'] ?? '');
+  $itemAmount = (float) ($monthlyItemPaidRow['amount'] ?? 0);
+  if ($itemAmount <= 0) {
+    continue;
+  }
+
+  preg_match_all('/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+20\d{2}\b/i', $itemDescription, $monthLabelMatches);
+  $monthLabels = array_values(array_unique(array_map(static function ($label): string {
+    return trim((string) $label);
+  }, $monthLabelMatches[0] ?? [])));
+
+  if (empty($monthLabels)) {
+    continue;
+  }
+
+  $perMonthAmount = $itemAmount / count($monthLabels);
+  foreach ($monthLabels as $monthLabel) {
+    $monthDate = DateTime::createFromFormat('!M Y', $monthLabel);
+    if (!$monthDate instanceof DateTime) {
+      continue;
+    }
+    $monthKey = $monthDate->format('Y-m');
+    if (!isset($paidAmountByMonth[$monthKey])) {
+      $paidAmountByMonth[$monthKey] = 0.0;
+    }
+    $paidAmountByMonth[$monthKey] += $perMonthAmount;
+  }
+}
+
 $billingRows = [];
 $cursor = clone $billingStart;
 $guard = 0;
 while ($cursor <= $billingEnd && $guard < 240) {
   $monthKey = $cursor->format('Y-m');
+  $monthPaidAmount = (float) ($paidAmountByMonth[$monthKey] ?? 0);
+  $rowStatus = isset($paidMonths[$monthKey]) ? 'paid' : 'unpaid';
+  $rowAmount = $packageAmount;
+
+  if ($monthPaidAmount > 0) {
+    if ($packageAmount > 0 && $monthPaidAmount + 0.01 >= $packageAmount) {
+      $rowStatus = 'paid';
+      $rowAmount = $packageAmount;
+    } else {
+      $rowStatus = 'partial_paid';
+      $rowAmount = $monthPaidAmount;
+    }
+  }
+
   $billingRows[] = [
     'bill_date' => $cursor->format('Y-m-01'),
     'month_label' => $cursor->format('M Y'),
-    'amount' => $packageAmount,
-    'status' => isset($paidMonths[$monthKey]) ? 'paid' : 'unpaid',
+    'amount' => $rowAmount,
+    'status' => $rowStatus,
   ];
   $cursor->modify('+1 month');
   $guard++;
@@ -153,7 +212,8 @@ while ($cursor <= $billingEnd && $guard < 240) {
 $billingRows = array_reverse($billingRows);
 
 $billingPaidCount = count(array_filter($billingRows, static fn($r) => $r['status'] === 'paid'));
-$billingUnpaidCount = count($billingRows) - $billingPaidCount;
+$billingPartialPaidCount = count(array_filter($billingRows, static fn($r) => $r['status'] === 'partial_paid'));
+$billingUnpaidCount = count($billingRows) - $billingPaidCount - $billingPartialPaidCount;
 
 $customerInvoiceStmt = $pdo->prepare(
   'SELECT fi.income_id,
@@ -903,6 +963,7 @@ require '../../includes/header.php';
                     <h6 class="mb-0">Billing Schedule</h6>
                     <div class="d-flex gap-2">
                       <span class="badge badge-subtle-success fs-11">Paid: <?= $billingPaidCount ?></span>
+                      <span class="badge badge-subtle-warning fs-11">Partial Paid: <?= $billingPartialPaidCount ?></span>
                       <span class="badge badge-subtle-danger fs-11">Unpaid: <?= $billingUnpaidCount ?></span>
                     </div>
                   </div>
@@ -931,9 +992,12 @@ require '../../includes/header.php';
                                 <td><?= htmlspecialchars($packageRaw !== '' ? $packageRaw : '-') ?></td>
                                 <td class="fw-semi-bold">Tk <?= number_format((float) $bill['amount'], 2) ?></td>
                                 <td class="pe-x1 text-end">
-                                  <span class="badge badge-subtle-<?= $bill['status'] === 'paid' ? 'success' : 'danger' ?> fs-11">
-                                    <?= strtoupper($bill['status']) ?>
-                                  </span>
+                                  <?php
+                                  $statusValue = (string) ($bill['status'] ?? 'unpaid');
+                                  $statusBadgeClass = $statusValue === 'paid' ? 'success' : ($statusValue === 'partial_paid' ? 'warning' : 'danger');
+                                  $statusLabel = $statusValue === 'partial_paid' ? 'PARTIAL PAID' : strtoupper($statusValue);
+                                  ?>
+                                  <span class="badge badge-subtle-<?= $statusBadgeClass ?> fs-11"><?= $statusLabel ?></span>
                                 </td>
                               </tr>
                             <?php endforeach; ?>

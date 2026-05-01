@@ -10,7 +10,7 @@ use App\Core\Database;
 $pdo = Database::getConnection();
 
 $pdo->exec(
-    "CREATE TABLE IF NOT EXISTS finance_accounts (
+  "CREATE TABLE IF NOT EXISTS finance_accounts (
         account_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         company_id INT UNSIGNED NOT NULL,
         account_name VARCHAR(180) NOT NULL,
@@ -200,16 +200,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $amountRaw = trim((string) ($row['amount'] ?? '0'));
         $amount = is_numeric($amountRaw) ? (float) $amountRaw : -1;
 
-        if (!in_array($itemType, ['monthly_bill', 'product', 'deposit', 'other_charge'], true)) {
+        if (!in_array($itemType, ['monthly_bill', 'other_charge'], true)) {
           continue;
         }
         if ($amount <= 0) {
           continue;
         }
 
-        if ($itemType === 'product' && $productId <= 0) {
-          continue;
-        }
         if ($itemType === 'other_charge' && $description === '') {
           continue;
         }
@@ -491,22 +488,13 @@ foreach ($serialRows as $sr) {
 }
 
 $customerBillingMap = [];
-$firstDayCurrentMonth = new DateTime('first day of this month');
 foreach ($customers as $c) {
   $customerId = (int) ($c['customer_id'] ?? 0);
   $packageRaw = trim((string) ($c['package_id'] ?? ''));
   $monthlyAmount = $packageRaw !== '' ? (float) preg_replace('/[^\\d.]+/', '', $packageRaw) : 0.0;
 
-  $startSource = $c['package_activate_date'] ?? null;
-  if (empty($startSource)) {
-    $startSource = $c['registered_date'] ?? null;
-  }
-  if (empty($startSource)) {
-    $startSource = $c['created_at'] ?? null;
-  }
-
-  $start = !empty($startSource) ? new DateTime((string) $startSource) : new DateTime('now');
-  $start->modify('first day of next month');
+  $billingStart = new DateTime('first day of this month');
+  $billingEnd = new DateTime('first day of this month');
 
   $paidMonths = [];
   $billingText = trim((string) (($c['payment'] ?? '') . ' ' . ($c['invoices'] ?? '')));
@@ -517,33 +505,29 @@ foreach ($customers as $c) {
     }
   }
 
-  $totalMonths = 0;
-  $paidCount = 0;
-  $cursor = clone $start;
+  $billingRows = [];
+  $cursor = clone $billingStart;
   $guard = 0;
-  while ($cursor <= $firstDayCurrentMonth && $guard < 240) {
-    $totalMonths++;
-    if (isset($paidMonths[$cursor->format('Y-m')])) {
-      $paidCount++;
-    }
+  while ($cursor <= $billingEnd && $guard < 240) {
+    $monthKey = $cursor->format('Y-m');
+    $billingRows[] = [
+      'month_label' => $cursor->format('M Y'),
+      'status' => isset($paidMonths[$monthKey]) ? 'paid' : 'unpaid',
+    ];
     $cursor->modify('+1 month');
     $guard++;
   }
+  $billingRows = array_reverse($billingRows);
 
-  $unpaidCount = max(0, $totalMonths - $paidCount);
-  $unpaidAmount = $monthlyAmount * $unpaidCount;
-
+  $unpaidCount = 0;
   $unpaidMonthNames = [];
-  $cursor2 = clone $start;
-  $guard2 = 0;
-  while ($cursor2 <= $firstDayCurrentMonth && $guard2 < 240) {
-    $ym = $cursor2->format('Y-m');
-    if (!isset($paidMonths[$ym])) {
-      $unpaidMonthNames[] = $cursor2->format('M Y');
+  foreach ($billingRows as $billRow) {
+    if (($billRow['status'] ?? '') === 'unpaid') {
+      $unpaidCount++;
+      $unpaidMonthNames[] = (string) ($billRow['month_label'] ?? '');
     }
-    $cursor2->modify('+1 month');
-    $guard2++;
   }
+  $unpaidAmount = $monthlyAmount * $unpaidCount;
 
   $customerBillingMap[$customerId] = [
     'monthly_amount' => $monthlyAmount,
@@ -709,9 +693,7 @@ require '../../includes/header.php';
       <div class="card-header border-bottom border-200">
         <h5 class="mb-0">Income Management</h5>
       </div>
-      <div class="card-body">
-        <p class="text-700 mb-0">Generate customer bills with item rows, discount, and paid status control.</p>
-      </div>
+
     </div>
   </div>
 
@@ -722,7 +704,56 @@ require '../../includes/header.php';
       </div>
     </div>
   <?php endif; ?>
+  <div class="col-12">
+    <div class="row g-3 mb-3">
+      <div class="col-sm-6 col-md-3">
+        <div class="card overflow-hidden" style="min-width: 12rem">
+          <div class="bg-holder bg-card" style="background-image:url(assets/img/icons/spot-illustrations/corner-1.png);"></div><!--/.bg-holder-->
+          <div class="card-body position-relative">
+            <h6>Total Invoices</h6>
+            <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-warning">
+              58.39k
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-sm-6 col-md-3">
+        <div class="card overflow-hidden" style="min-width: 12rem">
+          <div class="bg-holder bg-card" style="background-image:url(assets/img/icons/spot-illustrations/corner-2.png);"></div><!--/.bg-holder-->
+          <div class="card-body position-relative">
+            <h6>Total Invoice Amount</h6>
+            <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-warning">
+              58.39k
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-sm-6 col-md-3">
+        <div class="card overflow-hidden" style="min-width: 12rem">
+          <div class="bg-holder bg-card" style="background-image:url(assets/img/icons/spot-illustrations/corner-3.png);"></div><!--/.bg-holder-->
+          <div class="card-body position-relative">
+            <h6>Total Payments</h6>
+            <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-warning">
+              58.39k
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-sm-6 col-md-3">
+        <div class="card overflow-hidden" style="min-width: 12rem">
+          <div class="bg-holder bg-card" style="background-image:url(assets/img/icons/spot-illustrations/corner-4.png);"></div><!--/.bg-holder-->
+          <div class="card-body position-relative">
+            <h6>Total Dues</h6>
+            <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-warning">
+              58.39k
+            </div>
+          </div>
+        </div>
+      </div>
 
+
+    </div>
+  </div>
   <div class="col-12 col-md-8 col-xxl-8">
     <div class="card h-100">
       <div class="card-header border-bottom border-200 d-flex align-items-center justify-content-between flex-wrap gap-2">
@@ -759,7 +790,9 @@ require '../../includes/header.php';
             </thead>
             <tbody>
               <?php if (empty($incomeRows)): ?>
-                <tr><td colspan="14" class="text-center py-3 text-600">No incomes found.</td></tr>
+                <tr>
+                  <td colspan="14" class="text-center py-3 text-600">No incomes found.</td>
+                </tr>
               <?php else: ?>
                 <?php foreach ($incomeRows as $row): ?>
                   <tr>
@@ -839,31 +872,39 @@ require '../../includes/header.php';
 
   <div class="col-12 col-md-4 col-xxl-4">
     <div class="card h-100">
-      <div class="card-header border-bottom border-200"><h6 class="mb-0"><?= (int) $form['income_id'] > 0 ? 'Update Invoice' : 'Add Invoice' ?></h6></div>
-      <div class="card-body">
+      <div class="card-header border-bottom border-200">
+        <h6 class="mb-0"><?= (int) $form['income_id'] > 0 ? 'Update Invoice' : 'Add Invoice' ?></h6>
+      </div>
+      <div class="card-body fs-11">
         <form class="row g-2" method="post" action="<?= $appBasePath ?>/app/finance/income-management.php" id="income-form">
           <?= ispts_csrf_field() ?>
           <input type="hidden" name="action" value="save_income">
           <input type="hidden" name="income_id" value="<?= (int) $form['income_id'] ?>">
 
-          <div class="col-12">
-            <label class="form-label" for="income-account">Select account</label>
-            <select class="form-select" id="income-account" name="account_id" required>
-              <option value="" disabled <?= (int) $form['account_id'] <= 0 ? 'selected' : '' ?>>Select account</option>
-              <?php foreach ($accounts as $account): ?>
-                <option value="<?= (int) $account['account_id'] ?>" <?= (int) $form['account_id'] === (int) $account['account_id'] ? 'selected' : '' ?>>
-                  <?= htmlspecialchars((string) ($account['company'] ?? 'Unknown Company')) ?> - <?= htmlspecialchars((string) $account['account_name']) ?>
-                </option>
-              <?php endforeach; ?>
-            </select>
-          </div>
+          
+            <div class="col-8">
 
-          <div class="col-12">
-            <label class="form-label" for="income-customer">Select customer (search)</label>
-            <select class="form-select" id="income-customer" name="customer_id" required>
-              <option value="" disabled <?= (int) $form['customer_id'] <= 0 ? 'selected' : '' ?>>Search and select customer</option>
-              <?php foreach ($customers as $customer): ?>
-                <?php
+              <select class="form-select" id="income-account" name="account_id" required>
+                <option value="" disabled <?= (int) $form['account_id'] <= 0 ? 'selected' : '' ?>>Select account</option>
+                <?php foreach ($accounts as $account): ?>
+                  <option value="<?= (int) $account['account_id'] ?>" <?= (int) $form['account_id'] === (int) $account['account_id'] ? 'selected' : '' ?>>
+                    <?= htmlspecialchars((string) ($account['company'] ?? 'Unknown Company')) ?> - <?= htmlspecialchars((string) $account['account_name']) ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div class="col-4">
+
+              <input class="form-control" id="income-date" name="income_date" type="date" value="<?= htmlspecialchars((string) $form['income_date']) ?>" required>
+            </div>
+          
+
+          
+            <div class="col-12 mt-2">
+              <select class="form-select" id="income-customer" name="customer_id" required>
+                <option value="" disabled <?= (int) $form['customer_id'] <= 0 ? 'selected' : '' ?>>Search and select customer</option>
+                <?php foreach ($customers as $customer): ?>
+                  <?php
                   $customerUsername = trim((string) ($customer['username'] ?? ''));
                   $customerPhone = trim((string) ($customer['phone_no'] ?? ''));
                   $customerAddress = trim((string) ($customer['address'] ?? ''));
@@ -871,52 +912,54 @@ require '../../includes/header.php';
                   if ($customerPhone !== '') {
                     $optionLabel .= ' | ' . $customerPhone;
                   }
-                ?>
-              <option value="<?= (int) $customer['customer_id'] ?>" <?= (int) $form['customer_id'] === (int) $customer['customer_id'] ? 'selected' : '' ?> data-username="<?= htmlspecialchars($customerUsername) ?>" data-phone="<?= htmlspecialchars($customerPhone) ?>" data-address="<?= htmlspecialchars($customerAddress) ?>">
-                  <?= htmlspecialchars($optionLabel) ?>
-                </option>
-              <?php endforeach; ?>
-            </select>
-            <small class="text-600">Search by username or phone from the dropdown.</small>
+                  ?>
+                  <option value="<?= (int) $customer['customer_id'] ?>" <?= (int) $form['customer_id'] === (int) $customer['customer_id'] ? 'selected' : '' ?> data-username="<?= htmlspecialchars($customerUsername) ?>" data-phone="<?= htmlspecialchars($customerPhone) ?>" data-address="<?= htmlspecialchars($customerAddress) ?>">
+                    <?= htmlspecialchars($optionLabel) ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
 
-            <div class="card mt-3">
-              <div class="card-body position-relative">
-                <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
-                  <h6 class="mb-0">Customer<span class="badge badge-subtle-info rounded-pill ms-2">Active</span></h6>
-                  <a class="btn btn-link p-0 text-primary" href="#" id="view-customer-link" data-bs-toggle="tooltip" data-bs-placement="top" title="View Customer">
-                    <span class="fas fa-eye fs-9"></span>
-                  </a>
-                </div>
 
-                <div class="d-flex align-items-center flex-wrap gap-3 mb-1" id="customer-preview-inline">
-                  <div class="d-flex align-items-center gap-2 min-w-0">
-                    <span class="fas fa-user text-500 fs-9"></span>
-                    <span class="fw-semi-bold fs-10 text-truncate" id="preview-customer-name">-</span>
-                    <button class="btn btn-link p-0 text-primary" type="button" data-bs-toggle="tooltip" data-bs-placement="top" id="copy-customer-name" title="Copy Name">
-                      <span class="fas fa-copy fs-9"></span>
-                    </button>
+              <div class="card mb-2">
+                <div class="card-body position-relative">
+                  <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                    <h6 class="mb-0">Customer<span class="badge badge-subtle-info rounded-pill ms-2">Active</span></h6>
+                    <a class="btn btn-link p-0 text-primary" href="#" id="view-customer-link" data-bs-toggle="tooltip" data-bs-placement="top" title="View Customer">
+                      <span class="fas fa-eye fs-9"></span>
+                    </a>
                   </div>
-                  <div class="d-flex align-items-center gap-2 min-w-0">
-                    <span class="fas fa-phone text-500 fs-9"></span>
-                    <span class="fw-semi-bold fs-10 text-truncate" id="preview-customer-phone">-</span>
-                    <button class="btn btn-link p-0 text-primary" type="button" data-bs-toggle="tooltip" data-bs-placement="top" id="copy-customer-phone" title="Copy Phone">
-                      <span class="fas fa-copy fs-9"></span>
-                    </button>
-                  </div>
-                </div>
 
-                <div class="d-flex align-items-start gap-2">
-                  <span class="fas fa-map-marker-alt text-500 fs-9 mt-1"></span>
-                  <span class="fw-semi-bold fs-10 text-700" id="preview-customer-address">No address on record</span>
+                  <div class="d-flex align-items-center flex-wrap gap-3 mb-1" id="customer-preview-inline">
+                    <div class="d-flex align-items-center gap-2 min-w-0">
+                      <span class="fas fa-user text-500 fs-9"></span>
+                      <span class="fw-semi-bold fs-10 text-truncate" id="preview-customer-name">-</span>
+                      <button class="btn btn-link p-0 text-primary" type="button" data-bs-toggle="tooltip" data-bs-placement="top" id="copy-customer-name" title="Copy Name">
+                        <span class="fas fa-copy fs-9"></span>
+                      </button>
+                    </div>
+                    <div class="d-flex align-items-center gap-2 min-w-0">
+                      <span class="fas fa-phone text-500 fs-9"></span>
+                      <span class="fw-semi-bold fs-10 text-truncate" id="preview-customer-phone">-</span>
+                      <button class="btn btn-link p-0 text-primary" type="button" data-bs-toggle="tooltip" data-bs-placement="top" id="copy-customer-phone" title="Copy Phone">
+                        <span class="fas fa-copy fs-9"></span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="d-flex align-items-start gap-2">
+                    <span class="fas fa-map-marker-alt text-500 fs-9 mt-1"></span>
+                    <span class="fw-semi-bold fs-10 text-700" id="preview-customer-address">No address on record</span>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          
 
-          <div class="col-12">
-            <label class="form-label" for="income-date">Date</label>
-            <input class="form-control" id="income-date" name="income_date" type="date" value="<?= htmlspecialchars((string) $form['income_date']) ?>" required>
-          </div>
+
+
+
+
+
 
           <div class="col-12">
             <div class="d-flex align-items-center justify-content-between mb-2">
@@ -936,18 +979,19 @@ require '../../includes/header.php';
                 <tbody id="income-items-body"></tbody>
               </table>
             </div>
-            <div class="fs-11 text-600 mt-1">Type options: Monthly Bill, Product, Deposit, Other Charge.</div>
           </div>
 
-          <div class="col-12">
-            <label class="form-label" for="income-reference">Reference</label>
-            <input class="form-control" id="income-reference" name="reference_no" type="text" value="<?= htmlspecialchars((string) $form['reference_no']) ?>">
+  <div class="col-4 mt-2">
+            
+            <input class="form-control" id="income-reference" name="reference_no" type="text" placeholder="Refference" value="<?= htmlspecialchars((string) $form['reference_no']) ?>">
           </div>
 
-          <div class="col-12">
-            <label class="form-label" for="income-note">Note</label>
-            <textarea class="form-control" id="income-note" name="note" rows="2"><?= htmlspecialchars((string) $form['note']) ?></textarea>
+          <div class="col-8 mt-2 mb-2">
+            
+            <textarea class="form-control" id="income-note" name="note" rows="2" placeholder="Any Note"><?= htmlspecialchars((string) $form['note']) ?></textarea>
           </div>
+
+          
 
           <div class="col-12">
             <div class="row g-2">
@@ -997,425 +1041,400 @@ require '../../includes/header.php';
 
 <script src="<?= $appBasePath ?>/vendors/choices/choices.min.js"></script>
 <script>
-(function () {
-  var PRODUCTS = <?= $jsProducts ?: '[]' ?>;
-  var SERIAL_MAP = <?= $jsSerialMap ?: '{}' ?>;
-  var CUSTOMER_BILLING = <?= $jsCustomerBillingMap ?: '{}' ?>;
-  var INITIAL_ITEMS = <?= $jsFormItems ?: '[]' ?>;
+  (function() {
+    var PRODUCTS = <?= $jsProducts ?: '[]' ?>;
+    var SERIAL_MAP = <?= $jsSerialMap ?: '{}' ?>;
+    var CUSTOMER_BILLING = <?= $jsCustomerBillingMap ?: '{}' ?>;
+    var INITIAL_ITEMS = <?= $jsFormItems ?: '[]' ?>;
 
-  var form = document.getElementById('income-form');
-  var customerSelect = document.getElementById('income-customer');
-  var addItemBtn = document.getElementById('add-income-item');
-  var itemsBody = document.getElementById('income-items-body');
-  var discountInput = document.getElementById('discount-amount');
-  var summaryTotalEl = document.getElementById('summary-total');
-  var grandTotalEl = document.getElementById('grand-total');
-  var previewName = document.getElementById('preview-customer-name');
-  var previewPhone = document.getElementById('preview-customer-phone');
-  var previewAddress = document.getElementById('preview-customer-address');
-  var viewCustomerLink = document.getElementById('view-customer-link');
-  var copyCustomerName = document.getElementById('copy-customer-name');
-  var copyCustomerPhone = document.getElementById('copy-customer-phone');
-  var getPaymentInput = document.getElementById('income-get-payment');
-  var paymentMethodWrap = document.getElementById('payment-method-wrap');
-  var paymentMethodSelect = document.getElementById('income-payment-method');
+    var form = document.getElementById('income-form');
+    var customerSelect = document.getElementById('income-customer');
+    var addItemBtn = document.getElementById('add-income-item');
+    var itemsBody = document.getElementById('income-items-body');
+    var discountInput = document.getElementById('discount-amount');
+    var summaryTotalEl = document.getElementById('summary-total');
+    var grandTotalEl = document.getElementById('grand-total');
+    var previewName = document.getElementById('preview-customer-name');
+    var previewPhone = document.getElementById('preview-customer-phone');
+    var previewAddress = document.getElementById('preview-customer-address');
+    var viewCustomerLink = document.getElementById('view-customer-link');
+    var copyCustomerName = document.getElementById('copy-customer-name');
+    var copyCustomerPhone = document.getElementById('copy-customer-phone');
+    var getPaymentInput = document.getElementById('income-get-payment');
+    var paymentMethodWrap = document.getElementById('payment-method-wrap');
+    var paymentMethodSelect = document.getElementById('income-payment-method');
 
-  if (!form || !customerSelect || !addItemBtn || !itemsBody || !discountInput || !summaryTotalEl || !grandTotalEl) {
-    return;
-  }
-
-  function syncPaymentMethodState() {
-    if (!getPaymentInput || !paymentMethodWrap || !paymentMethodSelect) {
+    if (!form || !customerSelect || !addItemBtn || !itemsBody || !discountInput || !summaryTotalEl || !grandTotalEl) {
       return;
     }
 
-    var enabled = !!getPaymentInput.checked;
-    paymentMethodWrap.classList.toggle('d-none', !enabled);
-    paymentMethodSelect.required = enabled;
-
-    if (!enabled) {
-      paymentMethodSelect.value = '';
-    } else if (!paymentMethodSelect.value && paymentMethodSelect.options.length > 1) {
-      paymentMethodSelect.selectedIndex = 1;
-    }
-  }
-
-  if (window.Choices) {
-    new window.Choices(customerSelect, {
-      searchEnabled: true,
-      searchFields: ['label'],
-      itemSelectText: '',
-      shouldSort: false,
-      placeholder: true,
-      searchPlaceholderValue: 'Search customer by username or phone',
-    });
-  }
-
-  var rowIndex = 0;
-
-  function formatMoney(v) {
-    return (Math.round(v * 100) / 100).toFixed(2);
-  }
-
-  function copyToClipboard(text) {
-    if (!text || !navigator.clipboard) {
-      return;
-    }
-    navigator.clipboard.writeText(text).catch(function () {});
-  }
-
-  function updateCustomerPreview() {
-    if (!customerSelect) {
-      return;
-    }
-
-    var selectedOption = customerSelect.options[customerSelect.selectedIndex] || null;
-    var name = selectedOption ? (selectedOption.getAttribute('data-username') || '') : '';
-    var phone = selectedOption ? (selectedOption.getAttribute('data-phone') || '') : '';
-    var address = selectedOption ? (selectedOption.getAttribute('data-address') || '') : '';
-    var customerId = selectedOption ? (selectedOption.value || '') : '';
-
-    if (previewName) {
-      previewName.textContent = name !== '' ? name : '-';
-    }
-    if (previewPhone) {
-      previewPhone.textContent = phone !== '' ? phone : '-';
-    }
-    if (previewAddress) {
-      previewAddress.textContent = address !== '' ? address : 'No address on record';
-    }
-
-    if (viewCustomerLink) {
-      viewCustomerLink.setAttribute('href', customerId !== '' ? '<?= $appBasePath ?>/app/support-desk/customer-details.php?id=' + encodeURIComponent(customerId) : '#');
-    }
-
-    if (copyCustomerName) {
-      copyCustomerName.onclick = function () {
-        if (name !== '') {
-          copyToClipboard(name);
-        }
-      };
-    }
-
-    if (copyCustomerPhone) {
-      copyCustomerPhone.onclick = function () {
-        if (phone !== '') {
-          copyToClipboard(phone);
-        }
-      };
-    }
-  }
-
-  function getCustomerBillingData() {
-    var customerId = parseInt(customerSelect.value || '0', 10);
-    if (!customerId || !CUSTOMER_BILLING[customerId]) {
-      return { monthly_amount: 0, unpaid_count: 0, unpaid_amount: 0, unpaid_months: [] };
-    }
-    return CUSTOMER_BILLING[customerId];
-  }
-
-  function buildMonthOptions(unpaidMonths, preSelect) {
-    var selectSet = {};
-    (preSelect || []).forEach(function (m) { selectSet[m] = true; });
-    var allMonths = (unpaidMonths || []).slice();
-    (preSelect || []).forEach(function (m) {
-      if (allMonths.indexOf(m) === -1) { allMonths.push(m); }
-    });
-    if (allMonths.length === 0) {
-      return '<option disabled value="">No unpaid months</option>';
-    }
-    var html = '';
-    allMonths.forEach(function (m) {
-      html += '<option value="' + m + '"' + (selectSet[m] ? ' selected' : '') + '>' + m + '</option>';
-    });
-    return html;
-  }
-
-  function getSelectedMonths(row) {
-    var sel = row.querySelector('.js-month-select');
-    if (!sel) { return []; }
-    var out = [];
-    Array.prototype.forEach.call(sel.options, function (o) {
-      if (o.selected && o.value) { out.push(o.value); }
-    });
-    return out;
-  }
-
-  function updateMonthlyBillFromSelect(row) {
-    var billing = getCustomerBillingData();
-    var months = getSelectedMonths(row);
-    var descHidden = row.querySelector('.js-desc-hidden');
-    var amountInput = row.querySelector('.js-income-item-amount');
-    if (descHidden) {
-      descHidden.value = months.length > 0 ? 'Monthly bill: ' + months.join(', ') : '';
-    }
-    if (amountInput) {
-      var rate = parseFloat(billing.monthly_amount || 0);
-      amountInput.value = formatMoney(rate * months.length);
-    }
-    recalcTotals();
-  }
-
-  function buildProductOptions(selectedProductId) {
-    var html = '<option value="" disabled selected>Select product</option>';
-    PRODUCTS.forEach(function (p) {
-      var selected = parseInt(selectedProductId || '0', 10) === parseInt(p.product_id || '0', 10) ? ' selected' : '';
-      html += '<option value="' + p.product_id + '"' + selected + '>' + (p.product_name || ('Product #' + p.product_id)) + '</option>';
-    });
-    return html;
-  }
-
-  function buildSerialOptions(productId, selectedSerialId) {
-    var pid = parseInt(productId || '0', 10);
-    var list = pid > 0 && SERIAL_MAP[pid] ? SERIAL_MAP[pid] : [];
-    var html = '<option value="">No serial</option>';
-    list.forEach(function (s) {
-      var selected = parseInt(selectedSerialId || '0', 10) === parseInt(s.serial_id || '0', 10) ? ' selected' : '';
-      html += '<option value="' + s.serial_id + '"' + selected + '>' + (s.serial_ref || ('Serial #' + s.serial_id)) + '</option>';
-    });
-    return html;
-  }
-
-  function recalcTotals() {
-    var amountInputs = itemsBody.querySelectorAll('.js-income-item-amount');
-    var subtotal = 0;
-    amountInputs.forEach(function (input) {
-      var v = parseFloat(input.value || '0');
-      if (!isNaN(v) && v > 0) {
-        subtotal += v;
+    function syncPaymentMethodState() {
+      if (!getPaymentInput || !paymentMethodWrap || !paymentMethodSelect) {
+        return;
       }
-    });
 
-    var discount = parseFloat(discountInput.value || '0');
-    if (isNaN(discount) || discount < 0) {
-      discount = 0;
+      var enabled = !!getPaymentInput.checked;
+      paymentMethodWrap.classList.toggle('d-none', !enabled);
+      paymentMethodSelect.required = enabled;
+
+      if (!enabled) {
+        paymentMethodSelect.value = '';
+      } else if (!paymentMethodSelect.value && paymentMethodSelect.options.length > 1) {
+        paymentMethodSelect.selectedIndex = 1;
+      }
     }
 
-    var grand = subtotal - discount;
-    if (grand < 0) {
-      grand = 0;
+    if (window.Choices) {
+      new window.Choices(customerSelect, {
+        searchEnabled: true,
+        searchFields: ['label'],
+        itemSelectText: '',
+        shouldSort: false,
+        placeholder: true,
+        searchPlaceholderValue: 'Search customer by username or phone',
+      });
     }
 
-    summaryTotalEl.textContent = formatMoney(subtotal);
-    grandTotalEl.textContent = formatMoney(grand);
-  }
+    var rowIndex = 0;
 
-  function applyTypeState(row, preserveMonthSelection) {
-    var typeSelect = row.querySelector('.js-item-type');
-    var monthWrap = row.querySelector('.js-month-wrap');
-    var productWrap = row.querySelector('.js-product-wrap');
-    var otherWrap = row.querySelector('.js-other-wrap');
-    var amountInput = row.querySelector('.js-income-item-amount');
-    var monthSelect = row.querySelector('.js-month-select');
-    var descHidden = row.querySelector('.js-desc-hidden');
-
-    if (!typeSelect || !monthWrap || !productWrap || !otherWrap || !amountInput) {
-      return;
+    function formatMoney(v) {
+      return (Math.round(v * 100) / 100).toFixed(2);
     }
 
-    var type = typeSelect.value;
-    var billing = getCustomerBillingData();
-    var unpaidMonths = Array.isArray(billing.unpaid_months) ? billing.unpaid_months : [];
+    function copyToClipboard(text) {
+      if (!text || !navigator.clipboard) {
+        return;
+      }
+      navigator.clipboard.writeText(text).catch(function() {});
+    }
 
-    if (type === 'monthly_bill') {
-      monthWrap.classList.remove('d-none');
-      productWrap.classList.add('d-none');
-      otherWrap.classList.add('d-none');
-      amountInput.readOnly = true;
+    function updateCustomerPreview() {
+      if (!customerSelect) {
+        return;
+      }
 
-      var preSelect = [];
-      if (preserveMonthSelection) {
-        preSelect = getSelectedMonths(row);
-      } else if (descHidden && descHidden.value.indexOf('Monthly bill:') === 0) {
-        preSelect = descHidden.value.replace('Monthly bill:', '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+      var selectedOption = customerSelect.options[customerSelect.selectedIndex] || null;
+      var name = selectedOption ? (selectedOption.getAttribute('data-username') || '') : '';
+      var phone = selectedOption ? (selectedOption.getAttribute('data-phone') || '') : '';
+      var address = selectedOption ? (selectedOption.getAttribute('data-address') || '') : '';
+      var customerId = selectedOption ? (selectedOption.value || '') : '';
+
+      if (previewName) {
+        previewName.textContent = name !== '' ? name : '-';
+      }
+      if (previewPhone) {
+        previewPhone.textContent = phone !== '' ? phone : '-';
+      }
+      if (previewAddress) {
+        previewAddress.textContent = address !== '' ? address : 'No address on record';
+      }
+
+      if (viewCustomerLink) {
+        viewCustomerLink.setAttribute('href', customerId !== '' ? '<?= $appBasePath ?>/app/support-desk/customer-details.php?id=' + encodeURIComponent(customerId) : '#');
+      }
+
+      if (copyCustomerName) {
+        copyCustomerName.onclick = function() {
+          if (name !== '') {
+            copyToClipboard(name);
+          }
+        };
+      }
+
+      if (copyCustomerPhone) {
+        copyCustomerPhone.onclick = function() {
+          if (phone !== '') {
+            copyToClipboard(phone);
+          }
+        };
+      }
+    }
+
+    function getCustomerBillingData() {
+      var customerId = parseInt(customerSelect.value || '0', 10);
+      if (!customerId || !CUSTOMER_BILLING[customerId]) {
+        return {
+          monthly_amount: 0,
+          unpaid_count: 0,
+          unpaid_amount: 0,
+          unpaid_months: []
+        };
+      }
+      return CUSTOMER_BILLING[customerId];
+    }
+
+    function buildMonthOptions(months, preSelect) {
+      var selectSet = {};
+      (preSelect || []).forEach(function(m) { selectSet[m] = true; });
+      var html = '';
+      months.forEach(function(m) {
+        html += '<option value="' + m + '"' + (selectSet[m] ? ' selected' : '') + '>' + m + '</option>';
+      });
+      return html;
+    }
+
+    function get12Months() {
+      var names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      var now = new Date();
+      var months = [];
+      for (var i = 0; i < 12; i++) {
+        var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        months.push(names[d.getMonth()]);
+      }
+      return months;
+    }
+
+    function getSelectedMonths(row) {
+      var sel = row.querySelector('.js-month-select');
+      if (!sel) {
+        return [];
+      }
+      var out = [];
+      Array.prototype.forEach.call(sel.options, function(o) {
+        if (o.selected && o.value) {
+          out.push(o.value);
+        }
+      });
+      return out;
+    }
+
+    function isMonthlyPartialEnabled(row) {
+      var partialSwitch = row.querySelector('.js-month-partial');
+      return !!partialSwitch && partialSwitch.checked;
+    }
+
+    function updateMonthlyBillFromSelect(row) {
+      var months = getSelectedMonths(row);
+      var descHidden = row.querySelector('.js-desc-hidden');
+      if (descHidden) {
+        descHidden.value = months.length > 0 ? 'Monthly bill: ' + months.join(', ') : '';
+      }
+      recalcTotals();
+    }
+
+    function buildProductOptions(selectedProductId) {
+      var html = '<option value="" disabled selected>Select product</option>';
+      PRODUCTS.forEach(function(p) {
+        var selected = parseInt(selectedProductId || '0', 10) === parseInt(p.product_id || '0', 10) ? ' selected' : '';
+        html += '<option value="' + p.product_id + '"' + selected + '>' + (p.product_name || ('Product #' + p.product_id)) + '</option>';
+      });
+      return html;
+    }
+
+    function buildSerialOptions(productId, selectedSerialId) {
+      var pid = parseInt(productId || '0', 10);
+      var list = pid > 0 && SERIAL_MAP[pid] ? SERIAL_MAP[pid] : [];
+      var html = '<option value="">No serial</option>';
+      list.forEach(function(s) {
+        var selected = parseInt(selectedSerialId || '0', 10) === parseInt(s.serial_id || '0', 10) ? ' selected' : '';
+        html += '<option value="' + s.serial_id + '"' + selected + '>' + (s.serial_ref || ('Serial #' + s.serial_id)) + '</option>';
+      });
+      return html;
+    }
+
+    function recalcTotals() {
+      var amountInputs = itemsBody.querySelectorAll('.js-income-item-amount');
+      var subtotal = 0;
+      amountInputs.forEach(function(input) {
+        var v = parseFloat(input.value || '0');
+        if (!isNaN(v) && v > 0) {
+          subtotal += v;
+        }
+      });
+
+      var discount = parseFloat(discountInput.value || '0');
+      if (isNaN(discount) || discount < 0) {
+        discount = 0;
+      }
+
+      var grand = subtotal - discount;
+      if (grand < 0) {
+        grand = 0;
+      }
+
+      summaryTotalEl.textContent = formatMoney(subtotal);
+      grandTotalEl.textContent = formatMoney(grand);
+    }
+
+    function applyTypeState(row, preserveMonthSelection) {
+      var typeSelect = row.querySelector('.js-item-type');
+      var monthWrap = row.querySelector('.js-month-wrap');
+      var otherWrap = row.querySelector('.js-other-wrap');
+      var amountInput = row.querySelector('.js-income-item-amount');
+      var monthSelect = row.querySelector('.js-month-select');
+      var descHidden = row.querySelector('.js-desc-hidden');
+
+      if (!typeSelect || !monthWrap || !otherWrap || !amountInput) {
+        return;
+      }
+
+      var type = typeSelect.value;
+      var allMonths = get12Months();
+
+      if (type === 'monthly_bill') {
+        monthWrap.classList.remove('d-none');
+        otherWrap.classList.add('d-none');
+
+        var preSelect = [];
+        if (preserveMonthSelection) {
+          preSelect = getSelectedMonths(row);
+        } else if (descHidden && descHidden.value.indexOf('Monthly bill:') === 0) {
+          preSelect = descHidden.value.replace('Monthly bill:', '').split(',').map(function(s) {
+            return s.trim();
+          }).filter(Boolean);
+        } else {
+          preSelect = [allMonths[0]];
+        }
+
+        if (monthSelect) {
+          monthSelect.innerHTML = buildMonthOptions(allMonths, preSelect);
+        }
+
+        updateMonthlyBillFromSelect(row);
       } else {
-        preSelect = unpaidMonths.slice();
+        monthWrap.classList.add('d-none');
+        otherWrap.classList.remove('d-none');
+        if (!amountInput.value || parseFloat(amountInput.value) === 0) {
+          amountInput.value = '0.00';
+        }
+      }
+
+      recalcTotals();
+    }
+
+    function bindRowEvents(row) {
+      var typeSelect = row.querySelector('.js-item-type');
+      var removeBtn = row.querySelector('.js-remove-item');
+      var amountInput = row.querySelector('.js-income-item-amount');
+      var monthSelect = row.querySelector('.js-month-select');
+      var otherInput = row.querySelector('.js-other-description');
+      var descHidden = row.querySelector('.js-desc-hidden');
+
+      if (typeSelect) {
+        typeSelect.addEventListener('change', function() {
+          applyTypeState(row, false);
+        });
       }
 
       if (monthSelect) {
-        monthSelect.innerHTML = buildMonthOptions(unpaidMonths, preSelect);
+        monthSelect.addEventListener('change', function() {
+          updateMonthlyBillFromSelect(row);
+        });
       }
-      updateMonthlyBillFromSelect(row);
-    } else if (type === 'product') {
-      monthWrap.classList.add('d-none');
-      productWrap.classList.remove('d-none');
-      otherWrap.classList.add('d-none');
-      amountInput.readOnly = false;
-      if (!amountInput.value || parseFloat(amountInput.value) === 0) {
-        amountInput.value = '0.00';
+
+      if (otherInput && descHidden) {
+        otherInput.addEventListener('input', function() {
+          descHidden.value = otherInput.value;
+        });
       }
-    } else {
-      monthWrap.classList.add('d-none');
-      productWrap.classList.add('d-none');
-      otherWrap.classList.remove('d-none');
-      amountInput.readOnly = false;
-      if (!amountInput.value || parseFloat(amountInput.value) === 0) {
-        amountInput.value = '0.00';
+
+      if (removeBtn) {
+        removeBtn.addEventListener('click', function() {
+          row.remove();
+          if (itemsBody.querySelectorAll('tr').length === 0) {
+            addItemRow({
+              item_type: 'monthly_bill',
+              description: '',
+              amount: '0.00'
+            });
+          }
+          recalcTotals();
+        });
+      }
+
+      if (amountInput) {
+        amountInput.addEventListener('input', recalcTotals);
       }
     }
 
-    recalcTotals();
-  }
+    function addItemRow(data) {
+      rowIndex += 1;
+      var idx = rowIndex;
 
-  function bindRowEvents(row) {
-    var typeSelect = row.querySelector('.js-item-type');
-    var removeBtn = row.querySelector('.js-remove-item');
-    var amountInput = row.querySelector('.js-income-item-amount');
-    var productSelect = row.querySelector('.js-item-product');
-    var serialSelect = row.querySelector('.js-item-serial');
-    var monthSelect = row.querySelector('.js-month-select');
-    var otherInput = row.querySelector('.js-other-description');
-    var descHidden = row.querySelector('.js-desc-hidden');
+      var itemType = data && data.item_type ? data.item_type : 'monthly_bill';
+      var description = data && data.description ? String(data.description) : '';
+      var amount = data && data.amount ? String(data.amount) : '0.00';
 
-    if (typeSelect) {
-      typeSelect.addEventListener('change', function () {
-        applyTypeState(row, false);
-      });
-    }
+      var tr = document.createElement('tr');
+      tr.innerHTML = '' +
+        '<td style="min-width:130px;">' +
+        '  <select class="form-select form-select-sm js-item-type" name="items[' + idx + '][item_type]" required>' +
+        '    <option value="monthly_bill"' + (itemType === 'monthly_bill' ? ' selected' : '') + '>Monthly Bill</option>' +
+        '    <option value="other_charge"' + (itemType === 'other_charge' ? ' selected' : '') + '>Others</option>' +
+        '  </select>' +
+        '</td>' +
+        '<td style="min-width:200px;">' +
+        '  <div class="js-month-wrap d-none">' +
+        '    <select class="form-select form-select-sm js-month-select"></select>' +
+        '  </div>' +
+        '  <div class="js-other-wrap d-none">' +
+        '    <input class="form-control form-control-sm js-other-description" type="text" placeholder="Write description" value="' + (itemType === 'other_charge' ? description.replace(/"/g, '&quot;') : '') + '">' +
+        '  </div>' +
+        '  <input class="js-desc-hidden" name="items[' + idx + '][description]" type="hidden" value="' + description.replace(/"/g, '&quot;') + '">' +
+        '</td>' +
+        '<td style="min-width:110px;">' +
+        '  <input class="form-control form-control-sm js-income-item-amount" name="items[' + idx + '][amount]" type="number" min="0" step="0.01" value="' + amount.replace(/"/g, '&quot;') + '" required>' +
+        '</td>' +
+        '<td class="text-end">' +
+        '  <button class="btn btn-link p-0 js-remove-item" type="button" title="Remove"><span class="fas fa-times text-danger"></span></button>' +
+        '</td>';
 
-    if (monthSelect) {
-      monthSelect.addEventListener('change', function () {
-        updateMonthlyBillFromSelect(row);
-      });
-    }
+      itemsBody.appendChild(tr);
+      bindRowEvents(tr);
+      applyTypeState(tr, false);
 
-    if (otherInput && descHidden) {
-      otherInput.addEventListener('input', function () {
-        descHidden.value = otherInput.value;
-      });
-    }
-
-    if (removeBtn) {
-      removeBtn.addEventListener('click', function () {
-        row.remove();
-        if (itemsBody.querySelectorAll('tr').length === 0) {
-          addItemRow({ item_type: 'monthly_bill', product_id: 0, serial_id: 0, description: '', amount: '0.00' });
+      // Restore saved amount for other_charge
+      if (itemType === 'other_charge') {
+        var amtInput = tr.querySelector('.js-income-item-amount');
+        if (amtInput && amount !== '' && parseFloat(amount) > 0) {
+          amtInput.value = amount;
         }
-        recalcTotals();
-      });
-    }
-
-    if (amountInput) {
-      amountInput.addEventListener('input', recalcTotals);
-    }
-
-    if (productSelect && serialSelect) {
-      productSelect.addEventListener('change', function () {
-        serialSelect.innerHTML = buildSerialOptions(productSelect.value, 0);
-      });
-    }
-  }
-
-  function addItemRow(data) {
-    rowIndex += 1;
-    var idx = rowIndex;
-
-    var itemType = data && data.item_type ? data.item_type : 'monthly_bill';
-    var productId = data && data.product_id ? parseInt(data.product_id, 10) : 0;
-    var serialId = data && data.serial_id ? parseInt(data.serial_id, 10) : 0;
-    var description = data && data.description ? String(data.description) : '';
-    var amount = data && data.amount ? String(data.amount) : '0.00';
-
-    var tr = document.createElement('tr');
-    tr.innerHTML = '' +
-      '<td style="min-width:120px;">' +
-      '  <select class="form-select form-select-sm js-item-type" name="items[' + idx + '][item_type]" required>' +
-      '    <option value="monthly_bill"' + (itemType === 'monthly_bill' ? ' selected' : '') + '>Monthly Bill</option>' +
-      '    <option value="product"' + (itemType === 'product' ? ' selected' : '') + '>Product</option>' +
-      '    <option value="deposit"' + (itemType === 'deposit' ? ' selected' : '') + '>Deposit</option>' +
-      '    <option value="other_charge"' + (itemType === 'other_charge' ? ' selected' : '') + '>Other Charge</option>' +
-      '  </select>' +
-      '</td>' +
-      '<td style="min-width:200px;">' +
-      '  <div class="js-month-wrap d-none">' +
-      '    <select class="form-select form-select-sm js-month-select" multiple size="3"></select>' +
-      '    <div class="fs-11 text-500 mt-1">Hold Ctrl / Cmd to select multiple months</div>' +
-      '  </div>' +
-      '  <div class="js-product-wrap d-none">' +
-      '    <select class="form-select form-select-sm js-item-product mb-1" name="items[' + idx + '][product_id]">' + buildProductOptions(productId) + '</select>' +
-      '    <select class="form-select form-select-sm js-item-serial" name="items[' + idx + '][serial_id]">' + buildSerialOptions(productId, serialId) + '</select>' +
-      '  </div>' +
-      '  <div class="js-other-wrap d-none">' +
-      '    <input class="form-control form-control-sm js-other-description" type="text" placeholder="Write charge description" value="' + (itemType === 'other_charge' ? description.replace(/"/g, '&quot;') : '') + '">' +
-      '  </div>' +
-      '  <input class="js-desc-hidden" name="items[' + idx + '][description]" type="hidden" value="' + description.replace(/"/g, '&quot;') + '">' +
-      '</td>' +
-      '<td style="min-width:110px;">' +
-      '  <input class="form-control form-control-sm js-income-item-amount" name="items[' + idx + '][amount]" type="number" min="0" step="0.01" value="' + amount.replace(/"/g, '&quot;') + '" required>' +
-      '</td>' +
-      '<td class="text-end">' +
-      '  <button class="btn btn-link p-0 js-remove-item" type="button" title="Remove"><span class="fas fa-times text-danger"></span></button>' +
-      '</td>';
-
-    itemsBody.appendChild(tr);
-    bindRowEvents(tr);
-    applyTypeState(tr, false);
-
-    var psel = tr.querySelector('.js-item-product');
-    var ssel = tr.querySelector('.js-item-serial');
-    if (psel && productId > 0) {
-      psel.value = String(productId);
-      if (ssel) {
-        ssel.innerHTML = buildSerialOptions(productId, serialId);
       }
+
+      recalcTotals();
     }
 
-    // For product/other_charge, restore the saved amount
-    if (itemType !== 'monthly_bill') {
-      var amtInput = tr.querySelector('.js-income-item-amount');
-      if (amtInput && amount !== '' && parseFloat(amount) > 0) {
-        amtInput.value = amount;
-      }
-    }
-
-    recalcTotals();
-  }
-
-  addItemBtn.addEventListener('click', function () {
-    addItemRow({
-      item_type: 'other_charge',
-      product_id: 0,
-      serial_id: 0,
-      description: '',
-      amount: '0.00',
+    addItemBtn.addEventListener('click', function() {
+      addItemRow({
+        item_type: 'monthly_bill',
+        description: '',
+        amount: '0.00',
+      });
     });
-  });
 
-  customerSelect.addEventListener('change', function () {
+    customerSelect.addEventListener('change', function() {
+      updateCustomerPreview();
+      var rows = itemsBody.querySelectorAll('tr');
+      rows.forEach(function(row) {
+        var typeSelect = row.querySelector('.js-item-type');
+        if (typeSelect && typeSelect.value === 'monthly_bill') {
+          applyTypeState(row, true);
+        }
+      });
+      recalcTotals();
+    });
+
+    discountInput.addEventListener('input', recalcTotals);
+    if (getPaymentInput) {
+      getPaymentInput.addEventListener('change', syncPaymentMethodState);
+    }
+
+    if (Array.isArray(INITIAL_ITEMS) && INITIAL_ITEMS.length > 0) {
+      INITIAL_ITEMS.forEach(function(item) {
+        addItemRow(item || {});
+      });
+    } else {
+      addItemRow({
+        item_type: 'monthly_bill',
+        description: '',
+        amount: '0.00',
+      });
+    }
+
     updateCustomerPreview();
-    var rows = itemsBody.querySelectorAll('tr');
-    rows.forEach(function (row) {
-      var typeSelect = row.querySelector('.js-item-type');
-      if (typeSelect && typeSelect.value === 'monthly_bill') {
-        applyTypeState(row, true);
-      }
-    });
+    syncPaymentMethodState();
     recalcTotals();
-  });
-
-  discountInput.addEventListener('input', recalcTotals);
-  if (getPaymentInput) {
-    getPaymentInput.addEventListener('change', syncPaymentMethodState);
-  }
-
-  if (Array.isArray(INITIAL_ITEMS) && INITIAL_ITEMS.length > 0) {
-    INITIAL_ITEMS.forEach(function (item) {
-      addItemRow(item || {});
-    });
-  } else {
-    addItemRow({
-      item_type: 'monthly_bill',
-      product_id: 0,
-      serial_id: 0,
-      description: 'Monthly bill due collection',
-      amount: '0.00',
-    });
-  }
-
-  updateCustomerPreview();
-  syncPaymentMethodState();
-  recalcTotals();
-})();
+  })();
 </script>
 
 <?php
