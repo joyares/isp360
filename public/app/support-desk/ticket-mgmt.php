@@ -377,8 +377,8 @@ require '../../includes/header.php';
       <div class="card h-100">
         <div class="card-header border-bottom border-200"><h6 class="mb-0"><?= $categoryForm['category_id'] > 0 ? 'Update Category' : 'Add Category' ?></h6></div>
         <div class="card-body">
-          <form class="row g-2" method="post" action="<?= $appBasePath ?>
-            <?= ispts_csrf_field() ?>/app/support-desk/ticket-mgmt.php?tab=category">
+          <form class="row g-2" method="post" action="<?= $appBasePath ?>/app/support-desk/ticket-mgmt.php?tab=category">
+            <?= ispts_csrf_field() ?>
             <input type="hidden" name="action" value="save_category">
             <input type="hidden" name="category_id" value="<?= (int) $categoryForm['category_id'] ?>">
             <div class="col-12">
@@ -449,8 +449,8 @@ require '../../includes/header.php';
       <div class="card h-100">
         <div class="card-header border-bottom border-200"><h6 class="mb-0"><?= $statusForm['ticket_status_id'] > 0 ? 'Update Status' : 'Add Status' ?></h6></div>
         <div class="card-body">
-          <form class="row g-2" method="post" action="<?= $appBasePath ?>
-            <?= ispts_csrf_field() ?>/app/support-desk/ticket-mgmt.php?tab=status">
+          <form class="row g-2" method="post" action="<?= $appBasePath ?>/app/support-desk/ticket-mgmt.php?tab=status">
+            <?= ispts_csrf_field() ?>
             <input type="hidden" name="action" value="save_status">
             <input type="hidden" name="ticket_status_id" value="<?= (int) $statusForm['ticket_status_id'] ?>">
             <div class="col-12">
@@ -529,8 +529,8 @@ require '../../includes/header.php';
       <div class="card h-100">
         <div class="card-header border-bottom border-200"><h6 class="mb-0"><?= $priorityForm['priority_id'] > 0 ? 'Update Priority' : 'Add Priority' ?></h6></div>
         <div class="card-body">
-          <form class="row g-2" method="post" action="<?= $appBasePath ?>
-            <?= ispts_csrf_field() ?>/app/support-desk/ticket-mgmt.php?tab=priority">
+          <form class="row g-2" method="post" action="<?= $appBasePath ?>/app/support-desk/ticket-mgmt.php?tab=priority">
+            <?= ispts_csrf_field() ?>
             <input type="hidden" name="action" value="save_priority">
             <input type="hidden" name="priority_id" value="<?= (int) $priorityForm['priority_id'] ?>">
             <div class="col-12">

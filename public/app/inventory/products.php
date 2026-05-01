@@ -292,8 +292,8 @@ require '../../includes/header.php';
     <div class="card h-100">
       <div class="card-header border-bottom border-200"><h6 class="mb-0"><?= $productForm['product_id'] > 0 ? 'Update Product' : 'Add Product' ?></h6></div>
       <div class="card-body">
-        <form class="row g-2" method="post" action="<?= $appBasePath ?>
-            <?= ispts_csrf_field() ?>/app/inventory/products.php">
+        <form class="row g-2" method="post" action="<?= $appBasePath ?>/app/inventory/products.php">
+            <?= ispts_csrf_field() ?>
           <input type="hidden" name="action" value="save_product">
           <input type="hidden" name="product_id" value="<?= (int) $productForm['product_id'] ?>">
 

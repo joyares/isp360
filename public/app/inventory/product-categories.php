@@ -401,8 +401,8 @@ require '../../includes/header.php';
       <div class="card h-100">
         <div class="card-header border-bottom border-200"><h6 class="mb-0"><?= $unitForm['unit_id'] > 0 ? 'Update Unit' : 'Add Unit' ?></h6></div>
         <div class="card-body">
-          <form class="row g-2" method="post" action="<?= $appBasePath ?>
-            <?= ispts_csrf_field() ?>/app/inventory/product-categories.php?tab=unit">
+          <form class="row g-2" method="post" action="<?= $appBasePath ?>/app/inventory/product-categories.php?tab=unit">
+            <?= ispts_csrf_field() ?>
             <input type="hidden" name="action" value="save_unit">
             <input type="hidden" name="unit_id" value="<?= (int) $unitForm['unit_id'] ?>">
             <div class="col-12">
@@ -471,8 +471,8 @@ require '../../includes/header.php';
       <div class="card h-100">
         <div class="card-header border-bottom border-200"><h6 class="mb-0"><?= $categoryForm['category_id'] > 0 ? 'Update Category' : 'Add Category' ?></h6></div>
         <div class="card-body">
-          <form class="row g-2" method="post" action="<?= $appBasePath ?>
-            <?= ispts_csrf_field() ?>/app/inventory/product-categories.php?tab=category">
+          <form class="row g-2" method="post" action="<?= $appBasePath ?>/app/inventory/product-categories.php?tab=category">
+            <?= ispts_csrf_field() ?>
             <input type="hidden" name="action" value="save_category">
             <input type="hidden" name="category_id" value="<?= (int) $categoryForm['category_id'] ?>">
             <div class="col-12">
@@ -545,8 +545,8 @@ require '../../includes/header.php';
       <div class="card h-100">
         <div class="card-header border-bottom border-200"><h6 class="mb-0"><?= $subCategoryForm['sub_category_id'] > 0 ? 'Update Sub Category' : 'Add Sub Category' ?></h6></div>
         <div class="card-body">
-          <form class="row g-2" method="post" action="<?= $appBasePath ?>
-            <?= ispts_csrf_field() ?>/app/inventory/product-categories.php?tab=subcategory">
+          <form class="row g-2" method="post" action="<?= $appBasePath ?>/app/inventory/product-categories.php?tab=subcategory">
+            <?= ispts_csrf_field() ?>
             <input type="hidden" name="action" value="save_subcategory">
             <input type="hidden" name="sub_category_id" value="<?= (int) $subCategoryForm['sub_category_id'] ?>">
             <div class="col-12">

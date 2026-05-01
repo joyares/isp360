@@ -133,8 +133,8 @@ require '../../includes/header.php';
     <div class="alert alert-<?= $alert['type'] ?> py-2 mb-3"><?= htmlspecialchars($alert['message']) ?></div>
 <?php endif; ?>
 
-<form method="post" action="<?= $currentPath ?>
-            <?= ispts_csrf_field() ?>" id="checkinForm">
+<form method="post" action="<?= $currentPath ?>" id="checkinForm">
+            <?= ispts_csrf_field() ?>
     <input type="hidden" name="action" value="save_operation">
     
     <div class="row g-3">

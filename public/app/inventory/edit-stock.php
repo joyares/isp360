@@ -361,8 +361,8 @@ require '../../includes/header.php';
   </div>
 <?php endif; ?>
 
-<form method="post" action="<?= htmlspecialchars($_SERVER['PHP_SELF'] . '?edit_id=' . $editId) ?>
-            <?= ispts_csrf_field() ?>" enctype="multipart/form-data" id="stockInvoiceForm">
+<form method="post" action="<?= htmlspecialchars($_SERVER['PHP_SELF'] . '?edit_id=' . $editId) ?>" enctype="multipart/form-data" id="stockInvoiceForm">
+            <?= ispts_csrf_field() ?>
   <input type="hidden" name="action" value="save_stock_invoice">
   <input type="hidden" name="invoice_id" value="<?= $editId ?>">
 

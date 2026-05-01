@@ -1573,9 +1573,9 @@ require '../../includes/header.php';
             <h6 class="mb-0"><?= $formData['id'] > 0 ? 'Update Company Profile' : 'Add Company Profile' ?></h6>
           </div>
           <div class="card-body">
-            <form method="post" action="<?= htmlspecialchars($currentPath) ?>
-            <?= ispts_csrf_field() ?>?tab=company#partner-form" class="row g-2"
+            <form method="post" action="<?= htmlspecialchars($currentPath) ?>?tab=company#partner-form" class="row g-2"
               enctype="multipart/form-data">
+            <?= ispts_csrf_field() ?>
               <input type="hidden" name="action" value="save_company" />
               <input type="hidden" name="id" value="<?= (int) $formData['id'] ?>" />
 
@@ -1905,9 +1905,9 @@ require '../../includes/header.php';
           <h6 class="mb-0"><?= $partnerTabFormData['id'] > 0 ? 'Update Partner Company' : 'Add Partner Company' ?></h6>
         </div>
         <div class="card-body">
-          <form method="post" action="<?= htmlspecialchars($currentPath) ?>
-            <?= ispts_csrf_field() ?>?tab=partners#partner-tab-form" class="row g-2"
+          <form method="post" action="<?= htmlspecialchars($currentPath) ?>?tab=partners#partner-tab-form" class="row g-2"
             enctype="multipart/form-data">
+            <?= ispts_csrf_field() ?>
             <input type="hidden" name="action" value="save_partner" />
             <input type="hidden" name="id" value="<?= (int) $partnerTabFormData['id'] ?>" />
 
@@ -2241,6 +2241,7 @@ require '../../includes/header.php';
           <form class="row g-2"
             action="<?= htmlspecialchars($appBasePath, ENT_QUOTES, 'UTF-8') ?>/app/administration/my-company.php?tab=branches#branch-tab-form"
             method="post">
+            <?= ispts_csrf_field() ?>
             <input type="hidden" name="action" value="save_branch" />
             <input type="hidden" name="branch_id" value="<?= (int) ($branchFormData['branch_id'] ?? 0) ?>" />
             <?php $isStaticBranchForm = (int) ($branchFormData['branch_id'] ?? 0) === 1; ?>

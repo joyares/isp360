@@ -783,8 +783,8 @@ if (!$isPopup) {
       </button>
     </div>
     <div class="card-body">
-      <form method="post" action="<?= htmlspecialchars($currentPath, ENT_QUOTES, 'UTF-8') ?>
-            <?= ispts_csrf_field() ?>" id="quickVendorForm">
+      <form method="post" action="<?= htmlspecialchars($currentPath, ENT_QUOTES, 'UTF-8') ?>" id="quickVendorForm">
+            <?= ispts_csrf_field() ?>
         <input type="hidden" name="action" value="save_quick_vendor">
         <div class="row g-2 align-items-end">
           <div class="col-md-4">
@@ -815,10 +815,10 @@ if (!$isPopup) {
 <!-- MAIN STOCK INVOICE FORM                                                   -->
 <!-- ═════════════════════════════════════════════════════════════════════════ -->
 <form method="post"
-      action="<?= htmlspecialchars($currentPath, ENT_QUOTES, 'UTF-8') ?>
-            <?= ispts_csrf_field() ?>"
+      action="<?= htmlspecialchars($currentPath, ENT_QUOTES, 'UTF-8') ?>"
       enctype="multipart/form-data"
       id="stockInvoiceForm">
+            <?= ispts_csrf_field() ?>
   <input type="hidden" name="action" value="save_stock_invoice">
   <input type="hidden" name="invoice_id" value="<?= $editId ?>">
   <input type="hidden" name="popup" value="<?= $isPopup ? 1 : 0 ?>">
