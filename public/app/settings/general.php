@@ -24,6 +24,7 @@ $settings = new SettingsIspts($pdo);
 $alert = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    ispts_csrf_validate();
     $data = [
         'site_title' => $_POST['site_title'] ?? '',
         'system_currency' => $_POST['system_currency'] ?? '',

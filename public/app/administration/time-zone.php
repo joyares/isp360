@@ -43,6 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['timezone'])) {
     <?php endif; ?>
 
     <form method="post" class="row g-3">
+            <?= ispts_csrf_field() ?>
       <div class="col-md-6">
         <label for="timezone" class="form-label">Select Timezone</label>
         <select class="form-select js-choice" id="timezone" name="timezone" data-options='{"removeItemButton":true,"placeholder":true}'>

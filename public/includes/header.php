@@ -23,7 +23,8 @@ if (isset($_ENV['APP_TIMEZONE'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
     <!-- ===============================================--><!--    Document Title--><!-- ===============================================-->
-    <title>Admin | Dashboard &amp; Web App Template</title>
+    <title><?= htmlspecialchars($pageTitle ?? 'ISP360 Admin') ?></title>
+    <meta name="csrf-token" content="<?= htmlspecialchars(ispts_csrf_token()) ?>">
 
     <!-- ===============================================--><!--    Favicons--><!-- ===============================================-->
     <link rel="apple-touch-icon" sizes="180x180" href="<?= $appBasePath ?>/assets/img/favicons/apple-touch-icon.png">

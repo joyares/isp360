@@ -53,6 +53,7 @@ $currentPath = $_SERVER['PHP_SELF'] ?? '/app/administration/admin-users.php';
 $savedFlag = $_GET['saved'] ?? '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    ispts_csrf_validate();
     $action = $_POST['action'] ?? '';
 
     if ($action === 'save_admin_user') {
@@ -211,6 +212,7 @@ require '../../includes/header.php';
                         <span class="fas fa-edit text-500"></span>
                       </button>
                       <form method="post" class="d-inline ms-2 align-middle">
+            <?= ispts_csrf_field() ?>
                         <input type="hidden" name="action" value="toggle_admin_user_status" />
                         <input type="hidden" name="admin_user_id" value="<?= (int) $user['admin_user_id'] ?>" />
                         <input type="hidden" name="target_status" value="<?= (int) $user['status'] === 1 ? '0' : '1' ?>" />
@@ -251,6 +253,7 @@ require '../../includes/header.php';
       </div>
       <div class="card-body">
         <form class="row g-3" action="" method="post">
+            <?= ispts_csrf_field() ?>
           <input type="hidden" name="action" value="save_admin_user" />
 
           <div class="col-12">

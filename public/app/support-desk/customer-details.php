@@ -712,7 +712,8 @@ require '../../includes/header.php';
                     <h6 class="mb-0 text-white"><span class="fas fa-sign-out-alt me-2"></span>Quick Checkout</h6>
                   </div>
                   <div class="card-body p-2">
-                    <form method="post" action="customer-details.php?id=<?= $customerId ?>">
+                    <form method="post" action="customer-details.php?id=<?= $customerId ?>
+            <?= ispts_csrf_field() ?>">
                       <input type="hidden" name="asset_action" value="checkout">
                       <div class="mb-2">
                         <label class="form-label fs-11 mb-1">Branch</label>
@@ -757,7 +758,8 @@ require '../../includes/header.php';
                     <h6 class="mb-0 text-white"><span class="fas fa-sign-in-alt me-2"></span>Quick Return</h6>
                   </div>
                   <div class="card-body p-2">
-                    <form method="post" action="customer-details.php?id=<?= $customerId ?>">
+                    <form method="post" action="customer-details.php?id=<?= $customerId ?>
+            <?= ispts_csrf_field() ?>">
                       <input type="hidden" name="asset_action" value="checkin">
                       <div class="mb-2">
                         <label class="form-label fs-11 mb-1">Branch</label>
@@ -867,7 +869,8 @@ require '../../includes/header.php';
           </div>
 
           <!-- Quick Update Form -->
-          <form method="post" action="all-tickets.php?<?= http_build_query($_GET) ?>#selected-ticket-details"
+          <form method="post" action="all-tickets.php?<?= http_build_query($_GET) ?>
+            <?= ispts_csrf_field() ?>#selected-ticket-details"
             class="mb-0">
             <input type="hidden" name="action" value="quick_update_ticket">
             <input type="hidden" name="ticket_id" value="<?= (int) $t['ticket_id'] ?>">
@@ -932,7 +935,8 @@ require '../../includes/header.php';
             </div>
           <?php endif; ?>
 
-          <form method="post" action="all-tickets.php?<?= http_build_query($_GET) ?>#selected-ticket-details"
+          <form method="post" action="all-tickets.php?<?= http_build_query($_GET) ?>
+            <?= ispts_csrf_field() ?>#selected-ticket-details"
             class="mb-0">
             <input type="hidden" name="action" value="add_ticket_note">
             <input type="hidden" name="ticket_id" value="<?= (int) $t['ticket_id'] ?>">

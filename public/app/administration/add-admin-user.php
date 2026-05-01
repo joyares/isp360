@@ -38,6 +38,7 @@ $roles = $rolesStmt->fetchAll(\PDO::FETCH_ASSOC);
   </div>
   <div class="card-body">
     <form class="row g-3" action="#" method="post">
+            <?= ispts_csrf_field() ?>
 
       <div class="col-md-4">
         <label class="form-label" for="userType">User Type</label>

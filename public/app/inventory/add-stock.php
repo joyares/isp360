@@ -308,6 +308,7 @@ window.addEventListener('load', function () {
 // ── POST HANDLERS ─────────────────────────────────────────────────────────────
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    ispts_csrf_validate();
     $action = (string) ($_POST['action'] ?? '');
 
     // ── Quick Add Vendor ──────────────────────────────────────────────────────
@@ -782,7 +783,8 @@ if (!$isPopup) {
       </button>
     </div>
     <div class="card-body">
-      <form method="post" action="<?= htmlspecialchars($currentPath, ENT_QUOTES, 'UTF-8') ?>" id="quickVendorForm">
+      <form method="post" action="<?= htmlspecialchars($currentPath, ENT_QUOTES, 'UTF-8') ?>
+            <?= ispts_csrf_field() ?>" id="quickVendorForm">
         <input type="hidden" name="action" value="save_quick_vendor">
         <div class="row g-2 align-items-end">
           <div class="col-md-4">
@@ -813,7 +815,8 @@ if (!$isPopup) {
 <!-- MAIN STOCK INVOICE FORM                                                   -->
 <!-- ═════════════════════════════════════════════════════════════════════════ -->
 <form method="post"
-      action="<?= htmlspecialchars($currentPath, ENT_QUOTES, 'UTF-8') ?>"
+      action="<?= htmlspecialchars($currentPath, ENT_QUOTES, 'UTF-8') ?>
+            <?= ispts_csrf_field() ?>"
       enctype="multipart/form-data"
       id="stockInvoiceForm">
   <input type="hidden" name="action" value="save_stock_invoice">

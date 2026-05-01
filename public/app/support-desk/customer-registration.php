@@ -64,6 +64,7 @@ if ($isEdit) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    ispts_csrf_validate();
     foreach ($formData as $key => $value) {
         $formData[$key] = trim((string) ($_POST[$key] ?? ''));
     }
@@ -249,6 +250,7 @@ require '../../includes/header.php';
   </div>
   <div class="card-body">
     <form class="row g-3" method="post" action="">
+            <?= ispts_csrf_field() ?>
       <div class="col-md-4">
         <label class="form-label" for="fullName">Full Name</label>
         <input class="form-control" id="fullName" name="full_name" type="text" value="<?= htmlspecialchars($formData['full_name']) ?>" <?= $canManageCustomers ? '' : 'disabled' ?> />

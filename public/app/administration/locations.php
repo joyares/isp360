@@ -56,6 +56,7 @@ $formData = [
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    ispts_csrf_validate();
     $action = (string) ($_POST['action'] ?? '');
 
     if ($action === 'save_location') {
@@ -312,7 +313,8 @@ require '../../includes/header.php';
                       <a class="btn btn-link p-0" href="<?= $appBasePath ?>/app/administration/locations.php?type=<?= urlencode((string) $location['location_type']) ?>&edit_id=<?= (int) $location['location_id'] ?>#location-form" data-bs-toggle="tooltip" data-bs-placement="top" title="Edit" aria-label="Edit">
                         <span class="fas fa-edit text-500"></span>
                       </a>
-                      <form method="post" action="<?= $appBasePath ?>/app/administration/locations.php?type=<?= urlencode($menuType) ?>" class="d-inline ms-2 align-middle">
+                      <form method="post" action="<?= $appBasePath ?>
+            <?= ispts_csrf_field() ?>/app/administration/locations.php?type=<?= urlencode($menuType) ?>" class="d-inline ms-2 align-middle">
                         <input type="hidden" name="action" value="toggle_location_status" />
                         <input type="hidden" name="location_id" value="<?= (int) $location['location_id'] ?>" />
                         <input type="hidden" name="target_status" value="<?= (int) $location['status'] === 1 ? '0' : '1' ?>" />

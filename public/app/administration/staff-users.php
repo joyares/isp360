@@ -63,6 +63,7 @@ $currentPath = $_SERVER['PHP_SELF'] ?? '/app/administration/staff-users.php';
 $savedFlag = $_GET['saved'] ?? '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    ispts_csrf_validate();
     $action = $_POST['action'] ?? '';
 
     if ($action === 'save_staff_user') {
@@ -211,6 +212,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <span class="fas fa-edit text-500"></span>
                       </a>
                       <form method="post" class="d-inline ms-2 align-middle">
+            <?= ispts_csrf_field() ?>
                         <input type="hidden" name="action" value="toggle_staff_user_status" />
                         <input type="hidden" name="staff_user_id" value="<?= (int) $user['staff_user_id'] ?>" />
                         <input type="hidden" name="target_status" value="<?= (int) $user['status'] === 1 ? '0' : '1' ?>" />
@@ -253,6 +255,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       <div class="card-body">
 
         <form class="row g-3" action="" method="post">
+            <?= ispts_csrf_field() ?>
           <input type="hidden" name="action" value="save_staff_user" />
           <?php if ($editStaffUser): ?>
             <input type="hidden" name="edit_staff_user_id" value="<?= (int)$editStaffUser['staff_user_id'] ?>" />

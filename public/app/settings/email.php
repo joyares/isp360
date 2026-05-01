@@ -13,6 +13,7 @@ $settings = new SettingsIspts($pdo);
 $alert = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    ispts_csrf_validate();
     $data = [
         'email_form_name' => trim((string)($_POST['email_form_name'] ?? '')),
         'email_form_email' => trim((string)($_POST['email_form_email'] ?? '')),

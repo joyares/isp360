@@ -30,6 +30,7 @@ $canEditPurchasePrice = has_permission('inventory_price_edit');
     <h5 class="card-title">Inventory Item Form</h5>
 
     <form method="post" action="/app/inventory/save-item.php" enctype="multipart/form-data">
+            <?= ispts_csrf_field() ?>
       <input type="hidden" name="item_id" value="<?= htmlspecialchars((string) ($item['item_id'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
 
       <div class="row g-3">

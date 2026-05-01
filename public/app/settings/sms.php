@@ -13,6 +13,7 @@ $settings = new SettingsIspts($pdo);
 $alert = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    ispts_csrf_validate();
     $data = [
         'sms_api_name' => trim((string)($_POST['sms_api_name'] ?? '')),
         'sms_gateway' => trim((string)($_POST['sms_gateway'] ?? '')),

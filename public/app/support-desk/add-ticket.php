@@ -381,6 +381,7 @@ if ($currentUserName === '') {
 $alert = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    ispts_csrf_validate();
   $ticketFor = (string) ($_POST['ticket_for'] ?? 'existing_customer');
   if (!in_array($ticketFor, ['existing_customer', 'general', 'new_connection'], true)) {
     $ticketFor = 'existing_customer';
@@ -467,6 +468,7 @@ $selectedBranchId = $_SERVER['REQUEST_METHOD'] === 'POST'
           </div>
         <?php endif; ?>
         <form class="row g-3" action="" method="post">
+            <?= ispts_csrf_field() ?>
           <div class="col-md-6">
             <label class="form-label d-block mb-2">Ticket For</label>
             <div class="d-flex flex-wrap gap-3">

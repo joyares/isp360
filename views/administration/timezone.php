@@ -24,6 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['timezone'])) {
 <div class="container mt-4">
   <h3>Timezone Settings</h3>
   <form method="post">
+            <?= ispts_csrf_field() ?>
     <div class="mb-3">
       <label for="timezone" class="form-label">Select Timezone</label>
       <select class="form-select" id="timezone" name="timezone">

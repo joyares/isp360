@@ -9,6 +9,7 @@
       </div>
       <div class="card-body">
         <form method="post">
+            <?= ispts_csrf_field() ?>
           <div class="mb-4">
             <h5 class="fs-9">Create Ticket Notifications</h5>
             <p class="text-500 fs-10">Select which notification methods to trigger when a new ticket is created.</p>

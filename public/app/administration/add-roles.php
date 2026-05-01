@@ -30,6 +30,7 @@ require '../../includes/header.php';
       </div>
       <div class="card-body">
         <form class="row g-3" action="#" method="post">
+            <?= ispts_csrf_field() ?>
           <div class="col-12">
             <label class="form-label" for="roleGroup">Role Group</label>
             <select class="form-select" id="roleGroup" name="role_group">

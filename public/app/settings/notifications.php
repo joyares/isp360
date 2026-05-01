@@ -13,6 +13,7 @@ $settings = new SettingsIspts($pdo);
 $alert = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    ispts_csrf_validate();
     $data = [
         'create_ticket_sms' => isset($_POST['create_ticket_sms']) ? '1' : '0',
         'create_ticket_email' => isset($_POST['create_ticket_email']) ? '1' : '0',

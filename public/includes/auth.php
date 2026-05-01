@@ -521,3 +521,54 @@ if (!function_exists('ispts_ensure_customers_table')) {
         $pdo->exec('UPDATE customers SET registered_date = CURDATE() WHERE registered_date IS NULL');
     }
 }
+
+// ─── CSRF Protection ──────────────────────────────────────────────
+
+if (!function_exists('ispts_csrf_token')) {
+    /**
+     * Generate or return the current CSRF token for the session.
+     */
+    function ispts_csrf_token(): string
+    {
+        ispts_start_session();
+        if (empty($_SESSION['_csrf_token'])) {
+            $_SESSION['_csrf_token'] = bin2hex(random_bytes(32));
+        }
+        return $_SESSION['_csrf_token'];
+    }
+}
+
+if (!function_exists('ispts_csrf_field')) {
+    /**
+     * Return an HTML hidden input containing the CSRF token.
+     * Drop this inside any <form> that uses POST.
+     */
+    function ispts_csrf_field(): string
+    {
+        return '<input type="hidden" name="_csrf_token" value="' . htmlspecialchars(ispts_csrf_token()) . '">';
+    }
+}
+
+if (!function_exists('ispts_csrf_validate')) {
+    /**
+     * Validate the CSRF token on a POST request.
+     * Call this at the top of any POST handler.
+     * Returns true if valid, false otherwise.
+     * When $abort is true (default), it will die() with a 403 on failure.
+     */
+    function ispts_csrf_validate(bool $abort = true): bool
+    {
+        ispts_start_session();
+        $submitted = $_POST['_csrf_token'] ?? '';
+        $expected  = $_SESSION['_csrf_token'] ?? '';
+
+        if ($expected === '' || !hash_equals($expected, $submitted)) {
+            if ($abort) {
+                http_response_code(403);
+                die('Invalid or missing CSRF token. Please reload the page and try again.');
+            }
+            return false;
+        }
+        return true;
+    }
+}

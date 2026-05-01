@@ -58,6 +58,7 @@ $alert = null;
 $currentPath = $_SERVER['PHP_SELF'] ?? '/app/support-desk/all-tickets.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    ispts_csrf_validate();
   $action = (string) ($_POST['action'] ?? '');
 
   if ($action === 'update_ticket') {
@@ -1071,7 +1072,8 @@ require '../../includes/header.php';
           </div>
 
           <form method="post"
-            action="<?= $appBasePath ?>/app/support-desk/all-tickets.php<?= htmlspecialchars($selectedTicketActionQueryString) ?>#selected-ticket-details"
+            action="<?= $appBasePath ?>
+            <?= ispts_csrf_field() ?>/app/support-desk/all-tickets.php<?= htmlspecialchars($selectedTicketActionQueryString) ?>#selected-ticket-details"
             class="mb-3">
             <input type="hidden" name="action" value="quick_update_ticket">
             <input type="hidden" name="ticket_id" value="<?= (int) $selectedTicket['ticket_id'] ?>">
@@ -1210,7 +1212,8 @@ require '../../includes/header.php';
           <?php endif; ?>
 
           <form method="post"
-            action="<?= $appBasePath ?>/app/support-desk/all-tickets.php<?= htmlspecialchars($selectedTicketActionQueryString) ?>#selected-ticket-details">
+            action="<?= $appBasePath ?>
+            <?= ispts_csrf_field() ?>/app/support-desk/all-tickets.php<?= htmlspecialchars($selectedTicketActionQueryString) ?>#selected-ticket-details">
             <input type="hidden" name="action" value="add_ticket_note">
             <input type="hidden" name="ticket_id" value="<?= (int) $selectedTicket['ticket_id'] ?>">
             <div class="d-flex align-items-start gap-2">
@@ -1234,7 +1237,8 @@ require '../../includes/header.php';
               <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <form method="post"
-              action="<?= $appBasePath ?>/app/support-desk/all-tickets.php<?= htmlspecialchars($selectedTicketActionQueryString) ?>">
+              action="<?= $appBasePath ?>
+            <?= ispts_csrf_field() ?>/app/support-desk/all-tickets.php<?= htmlspecialchars($selectedTicketActionQueryString) ?>">
               <div class="modal-body">
                 <input type="hidden" name="action" value="update_ticket">
                 <input type="hidden" name="ticket_id" value="<?= (int) $selectedTicket['ticket_id'] ?>">

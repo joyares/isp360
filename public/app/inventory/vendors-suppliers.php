@@ -38,6 +38,7 @@ $alert = null;
 $currentPath = $_SERVER['PHP_SELF'] ?? '/app/inventory/vendors-suppliers.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    ispts_csrf_validate();
     $action = (string) ($_POST['action'] ?? '');
 
     if ($action === 'save_vendor') {
@@ -216,7 +217,8 @@ require '../../includes/header.php';
     <div class="card h-100">
       <div class="card-header border-bottom border-200"><h6 class="mb-0"><?= $vendorForm['vendor_id'] > 0 ? 'Update Vendor/Supplier' : 'Add Vendor/Supplier' ?></h6></div>
       <div class="card-body">
-        <form class="row g-2" method="post" action="<?= $appBasePath ?>/app/inventory/vendors-suppliers.php">
+        <form class="row g-2" method="post" action="<?= $appBasePath ?>
+            <?= ispts_csrf_field() ?>/app/inventory/vendors-suppliers.php">
           <input type="hidden" name="action" value="save_vendor">
           <input type="hidden" name="vendor_id" value="<?= (int) $vendorForm['vendor_id'] ?>">
 

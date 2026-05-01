@@ -256,6 +256,7 @@ $branchFormData = [
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    ispts_csrf_validate();
   $action = (string) ($_POST['action'] ?? '');
 
   // ── Save (insert / update) ───────────────────────────────────────────────
@@ -1572,7 +1573,8 @@ require '../../includes/header.php';
             <h6 class="mb-0"><?= $formData['id'] > 0 ? 'Update Company Profile' : 'Add Company Profile' ?></h6>
           </div>
           <div class="card-body">
-            <form method="post" action="<?= htmlspecialchars($currentPath) ?>?tab=company#partner-form" class="row g-2"
+            <form method="post" action="<?= htmlspecialchars($currentPath) ?>
+            <?= ispts_csrf_field() ?>?tab=company#partner-form" class="row g-2"
               enctype="multipart/form-data">
               <input type="hidden" name="action" value="save_company" />
               <input type="hidden" name="id" value="<?= (int) $formData['id'] ?>" />
@@ -1903,7 +1905,8 @@ require '../../includes/header.php';
           <h6 class="mb-0"><?= $partnerTabFormData['id'] > 0 ? 'Update Partner Company' : 'Add Partner Company' ?></h6>
         </div>
         <div class="card-body">
-          <form method="post" action="<?= htmlspecialchars($currentPath) ?>?tab=partners#partner-tab-form" class="row g-2"
+          <form method="post" action="<?= htmlspecialchars($currentPath) ?>
+            <?= ispts_csrf_field() ?>?tab=partners#partner-tab-form" class="row g-2"
             enctype="multipart/form-data">
             <input type="hidden" name="action" value="save_partner" />
             <input type="hidden" name="id" value="<?= (int) $partnerTabFormData['id'] ?>" />

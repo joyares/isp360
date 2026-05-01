@@ -49,6 +49,7 @@ $currentPath    = $_SERVER['PHP_SELF'] ?? '/app/inventory/edit-stock.php';
 // ── POST HANDLER ──────────────────────────────────────────────────────────────
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    ispts_csrf_validate();
     $action = (string) ($_POST['action'] ?? '');
     
     // Debug: Log what we received
@@ -360,7 +361,8 @@ require '../../includes/header.php';
   </div>
 <?php endif; ?>
 
-<form method="post" action="<?= htmlspecialchars($_SERVER['PHP_SELF'] . '?edit_id=' . $editId) ?>" enctype="multipart/form-data" id="stockInvoiceForm">
+<form method="post" action="<?= htmlspecialchars($_SERVER['PHP_SELF'] . '?edit_id=' . $editId) ?>
+            <?= ispts_csrf_field() ?>" enctype="multipart/form-data" id="stockInvoiceForm">
   <input type="hidden" name="action" value="save_stock_invoice">
   <input type="hidden" name="invoice_id" value="<?= $editId ?>">
 

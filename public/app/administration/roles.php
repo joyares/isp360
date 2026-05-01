@@ -89,6 +89,7 @@ $editRoleId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
 $savedFlag = $_GET['saved'] ?? '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    ispts_csrf_validate();
     $action = $_POST['action'] ?? '';
 
     if ($action === 'save_role') {
@@ -285,6 +286,7 @@ require '../../includes/header.php';
                         <span class="fas fa-edit <?= $isEditingRow ? 'text-primary' : 'text-500' ?>"></span>
                       </a>
                       <form method="post" class="d-inline ms-2 align-middle">
+            <?= ispts_csrf_field() ?>
                         <input type="hidden" name="action" value="toggle_role_status" />
                         <input type="hidden" name="role_id" value="<?= (int) $role['role_id'] ?>" />
                         <input type="hidden" name="target_status" value="<?= (int) $role['status'] === 1 ? '0' : '1' ?>" />
@@ -325,6 +327,7 @@ require '../../includes/header.php';
       </div>
       <div class="card-body">
         <form class="row g-3" action="" method="post">
+            <?= ispts_csrf_field() ?>
           <input type="hidden" name="action" value="save_role" />
           <input type="hidden" name="edit_role_id" value="<?= (int) $formValues['edit_role_id'] ?>" />
 

@@ -13,6 +13,7 @@
       </div>
       <div class="card-body">
         <form method="post" id="smsForm">
+            <?= ispts_csrf_field() ?>
           <div class="row g-3">
             <div class="col-md-6">
               <label for="sms_api_name" class="form-label">API Name</label>
