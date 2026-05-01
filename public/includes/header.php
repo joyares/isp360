@@ -1,6 +1,18 @@
 <?php
 require_once __DIR__ . '/auth.php';
 $appBasePath = ispts_resolve_app_base_path(dirname(__DIR__));
+
+// When the application is served from /public, keep generated links aligned with that web path.
+$requestPath = explode('?', $_SERVER['REQUEST_URI'] ?? '')[0];
+if (is_string($requestPath) && $requestPath !== '') {
+  if (preg_match('#^(.*?/public)(?:/|$)#i', $requestPath, $publicMatch) === 1 && !empty($publicMatch[1])) {
+    $appBasePath = rtrim((string) $publicMatch[1], '/');
+    if ($appBasePath === '') {
+      $appBasePath = '/public';
+    }
+  }
+}
+
 ispts_require_authentication($appBasePath);
 
 // Set default timezone from .env or fallback to Asia/Dhaka
