@@ -66,8 +66,11 @@ if [[ -n "$db_pass" ]]; then
   args+=("--password=$db_pass")
 fi
 
-ddl_sql="DROP DATABASE IF EXISTS \`$db_name\`; CREATE DATABASE \`$db_name\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-"$mysql_bin" "${args[@]}" -e "$ddl_sql"
+# ddl_sql="DROP DATABASE IF EXISTS \`$db_name\`; CREATE DATABASE \`$db_name\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+# "$mysql_bin" "${args[@]}" -e "$ddl_sql"
+
+# Select the database explicitly if needed for the import
+args+=("$db_name")
 
 if [[ "$dump_path" == *.gz ]]; then
   gzip -dc "$dump_path" | "$mysql_bin" "${args[@]}"
