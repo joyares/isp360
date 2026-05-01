@@ -85,6 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['asset_action'])) {
 $stmt = $pdo->prepare('
     SELECT io.op_id, io.op_type, io.purpose, io.created_at, io.notes,
            ip.product_name, ioi.quantity, ioi.op_item_id,
+           au.full_name as agent_name,
            (SELECT GROUP_CONCAT(isn.serial_ref SEPARATOR ", ") 
             FROM inventory_operation_serials ios 
             JOIN inventory_serial_numbers isn ON ios.serial_id = isn.serial_id
@@ -92,6 +93,7 @@ $stmt = $pdo->prepare('
     FROM inventory_operations io
     JOIN inventory_operation_items ioi ON io.op_id = ioi.op_id
     JOIN inventory_products ip ON ioi.product_id = ip.product_id
+    LEFT JOIN admin_users au ON io.created_by = au.admin_user_id
     WHERE io.customer_id = :cid
     ORDER BY io.created_at DESC
 ');
@@ -230,7 +232,8 @@ foreach ($customerTickets as $t) {
     'icon' => 'fa-ticket-alt',
     'color' => 'primary',
     'badge' => $t['status_name'],
-    'badge_color' => 'info'
+    'badge_color' => 'info',
+    'agent' => $t['assigned_to'] ?: 'Unassigned'
   ];
 }
 
@@ -246,7 +249,21 @@ foreach ($assetHistory as $a) {
     'icon' => $isCheckout ? 'fa-box' : 'fa-undo',
     'color' => $isCheckout ? 'warning' : 'success',
     'badge' => ucfirst($a['op_type']),
-    'badge_color' => $isCheckout ? 'primary' : 'success'
+    'badge_color' => $isCheckout ? 'primary' : 'success',
+    'agent' => $a['agent_name'] ?: 'System'
+  ];
+}
+
+// 3. Add Notes
+foreach ($allCustomerNotesRaw as $n) {
+  $author = $n['created_by_name'] ?: $n['created_by_username'] ?: 'System';
+  $timelineEvents[] = [
+    'type' => 'note',
+    'title' => 'Note added by ' . $author . ' on Ticket: ' . $n['ticket_no'],
+    'description' => $n['note_text'],
+    'date' => $n['created_at'],
+    'color' => 'info',
+    'agent' => $author
   ];
 }
 
@@ -454,49 +471,61 @@ require '../../includes/header.php';
       <div class="tab-content">
         <div class="card-body bg-body-tertiary tab-pane active" id="timeline" role="tabpanel"
           aria-labelledby="contact-timeline-tab">
-          <div class="timeline-vertical py-0">
-            <?php if (empty($timelineEvents)): ?>
-              <div class="text-center py-4 text-500">No activity recorded yet.</div>
-            <?php else: ?>
-              <?php foreach ($timelineEvents as $index => $event):
-                $isEnd = ($index % 2 !== 0);
-                $eventDate = new DateTime($event['date']);
-                ?>
-                <div class="timeline-item <?= $isEnd ? 'timeline-item-end' : 'timeline-item-start' ?> mb-3">
-                  <div class="timeline-icon icon-item icon-item-lg text-<?= $event['color'] ?> border-300">
-                    <span class="fs-8 fas <?= $event['icon'] ?>"></span>
-                  </div>
-                  <div class="row">
-                    <div class="col-lg-6 timeline-item-time">
-                      <div>
-                        <h6 class="mb-0 text-700"><?= $eventDate->format('Y') ?></h6>
-                        <p class="fs-11 text-500 font-sans-serif"><?= $eventDate->format('d F') ?></p>
-                      </div>
-                    </div>
-                    <div class="col-lg-6">
-                      <div class="timeline-item-content arrow-bg-white">
-                        <div class="timeline-item-card bg-white dark__bg-1100">
-                          <h5 class="mb-2"><?= htmlspecialchars((string) ($event['title'] ?? '')) ?></h5>
-                          <p class="fs-10 border-bottom mb-3 pb-4 text-600">
-                            <?= htmlspecialchars((string) ($event['description'] ?? '')) ?>
-                          </p>
-                          <div class="d-flex flex-wrap pt-2">
-                            <h6 class="mb-0 text-600 lh-base"><span
-                                class="far fa-clock me-1"></span><?= $eventDate->format('h:i A') ?></h6>
-                            <?php if (!empty($event['badge'])): ?>
-                              <div class="ms-auto">
-                                <small
-                                  class="badge rounded badge-subtle-<?= $event['badge_color'] ?>"><?= htmlspecialchars($event['badge']) ?></small>
-                              </div>
-                            <?php endif; ?>
-                          </div>
+          <div id="timelineList" data-list='{"valueNames":["event-title", "event-date"],"page":10,"pagination":true}'>
+            <div class="d-flex align-items-center justify-content-end mb-3">
+              <label class="mb-0 me-2 fs-10">Rows per page:</label>
+              <select class="form-select form-select-sm w-auto" onchange="const list = window.List.getInstance(document.getElementById('timelineList')); if(list) { list.page = parseInt(this.value); list.update(); }">
+                <option value="10">10</option>
+                <option value="20">20</option>
+                <option value="50">50</option>
+              </select>
+            </div>
+            
+            <ul class="list-unstyled mt-3 scrollbar management-calendar-events list" id="management-calendar-events">
+              <?php if (empty($timelineEvents)): ?>
+                <li class="text-center py-4 text-500">No activity recorded yet.</li>
+              <?php else: ?>
+                <?php foreach ($timelineEvents as $event):
+                  $eventDate = new DateTime($event['date']);
+                  ?>
+                  <li class="border-top pt-3 mb-3 pb-1 cursor-pointer" data-calendar-events="">
+                    <div class="d-flex">
+                      <div class="pe-3 text-end" style="width: 140px; flex-shrink: 0;">
+                        <div class="fs-11 fw-semi-bold text-700 mb-1 event-date">
+                          <?= $eventDate->format('d M, Y') ?> <span class="fw-normal text-500"><?= $eventDate->format('h:i A') ?></span>
                         </div>
+                        <?php if (!empty($event['agent'])): ?>
+                          <div class="fs-11 text-600 text-truncate" title="<?= htmlspecialchars($event['agent']) ?>">
+                            <span class="fas fa-user me-1"></span><?= htmlspecialchars($event['agent']) ?>
+                          </div>
+                        <?php endif; ?>
+                      </div>
+                      <div class="border-start border-3 border-<?= $event['color'] ?> ps-3 mt-1 flex-1 min-w-0">
+                        <div class="d-flex align-items-center mb-1">
+                          <h6 class="mb-0 fw-semi-bold text-700 hover-primary event-title text-truncate me-2">
+                            <?= htmlspecialchars((string) ($event['title'] ?? '')) ?>
+                          </h6>
+                          <?php if (!empty($event['badge'])): ?>
+                            <span class="badge rounded badge-subtle-<?= $event['badge_color'] ?> flex-shrink-0"><?= htmlspecialchars($event['badge']) ?></span>
+                          <?php endif; ?>
+                        </div>
+                        <?php if (!empty($event['description'])): ?>
+                          <p class="fs-10 text-600 mb-0" style="display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;">
+                            <?= strip_tags((string)$event['description']) ?>
+                          </p>
+                        <?php endif; ?>
                       </div>
                     </div>
-                  </div>
-                </div>
-              <?php endforeach; ?>
-            <?php endif; ?>
+                  </li>
+                <?php endforeach; ?>
+              <?php endif; ?>
+            </ul>
+            
+            <div class="d-flex justify-content-center mt-3">
+              <button class="btn btn-sm btn-falcon-default me-1" type="button" title="Previous" data-list-pagination="prev"><span class="fas fa-chevron-left"></span></button>
+              <ul class="pagination mb-0"></ul>
+              <button class="btn btn-sm btn-falcon-default ms-1" type="button" title="Next" data-list-pagination="next"><span class="fas fa-chevron-right"></span></button>
+            </div>
           </div>
         </div>
         <div class="card-body tab-pane p-0" id="tickets" role="tabpanel" aria-labelledby="contact-tickets-tab">
