@@ -70,12 +70,12 @@ fi
 # "$mysql_bin" "${args[@]}" -e "$ddl_sql"
 
 # Select the database explicitly if needed for the import
-args+=("$db_name")
+# args+=("$db_name")
 
 if [[ "$dump_path" == *.gz ]]; then
-  gzip -dc "$dump_path" | "$mysql_bin" "${args[@]}"
+  gzip -dc "$dump_path" | "$mysql_bin" "${args[@]}" "$db_name"
 else
-  "$mysql_bin" "${args[@]}" < "$dump_path"
+  "$mysql_bin" "${args[@]}" "$db_name" < "$dump_path"
 fi
 
 echo "Database restored from: $dump_path"
