@@ -57,21 +57,31 @@ if (!(Test-Path $dumpPath)) {
     exit 0
 }
 
-$args = @(
+$mysqlArgs = @(
     "--host=$dbHost",
     "--port=$dbPort",
     "--user=$dbUser"
 )
 if ($dbPass -ne "") {
-    $args += "--password=$dbPass"
+    $mysqlArgs += "--password=$dbPass"
+}
+
+Write-Host "Connecting to MySQL on $dbHost`:$dbPort..."
+# Simple check to see if we can connect
+& $mysql $mysqlArgs -e "SELECT 1" > $null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Error: Could not connect to MySQL server at $dbHost`:$dbPort." -ForegroundColor Red
+    Write-Host "Please ensure Laragon/MySQL is running."
+    exit 1
 }
 
 $dropCreateSql = "DROP DATABASE IF EXISTS ``$dbName``; CREATE DATABASE ``$dbName`` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-& $mysql @args -e $dropCreateSql
+& $mysql $mysqlArgs -e $dropCreateSql
 if ($LASTEXITCODE -ne 0) {
     throw "Failed to drop/create database $dbName"
 }
 
+Write-Host "Importing data into $dbName..."
 if ($dumpPath.ToLower().EndsWith('.gz')) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $fileStream = [System.IO.File]::OpenRead($dumpPath)
@@ -91,12 +101,12 @@ if ($dumpPath.ToLower().EndsWith('.gz')) {
         $fileStream.Dispose()
     }
 
-    $sql | & $mysql @args
+    $sql | & $mysql $mysqlArgs $dbName
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to import dump file $dumpPath"
     }
 } else {
-    Get-Content -Path $dumpPath -Raw | & $mysql @args
+    Get-Content -Path $dumpPath -Raw | & $mysql $mysqlArgs $dbName
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to import dump file $dumpPath"
     }
