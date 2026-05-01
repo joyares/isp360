@@ -120,3 +120,46 @@ ispts Image Compressor Helper:
 Pagination Logic:
 
 "In app/Core/BaseModel.php, implement a reusable ispts_paginate method that accepts $tableName, $limit (10/20/50), and $page. It must calculate the SQL OFFSET and return results where status = 1."
+
+## 11. Finance + Support UX Guardrails (Mandatory)
+
+- Choices.js searchable dropdowns:
+	- If a page initializes `new Choices(...)`, it MUST include both assets:
+		- `<?= $appBasePath ?>/vendors/choices/choices.min.css`
+		- `<?= $appBasePath ?>/vendors/choices/choices.min.js`
+	- Without these includes, the search input will not render.
+- Customer search dropdown standard:
+	- For customer selectors, option label format MUST be: `username | phone_no`.
+	- Add data attributes on options: `data-username`, `data-phone`, `data-address`.
+	- Use search placeholder text: `Search customer by username or phone`.
+- Customer preview block (when customer context is important):
+	- Show selected customer name, phone, address, and a link to customer details.
+	- Provide copy actions for name and phone (clipboard).
+- Monthly billing start rule:
+	- Billing cycle start MUST be computed as `first day of next month` from activation/registration source date.
+	- Do not start from `first day of this month`; that causes unintended current-month billing for newly registered customers.
+- Income monthly bill item behavior:
+	- Monthly bill rows MUST show unpaid months for the selected customer.
+	- Amount MUST be calculated from selected unpaid months (`selected_month_count * monthly_amount`).
+	- Store selected month labels in item description for audit visibility.
+- Income list safety and consistency:
+	- Default list query MUST use `WHERE status = 1`.
+	- Off action must be soft delete only (`status = 0`).
+	- Table list pages MUST support pagination with per-page options: 10, 20, 50.
+
+## 12. Implementation Checklist for New Pages
+
+- Security baseline (required for all write operations):
+	- Call `ispts_csrf_validate()` for every POST action.
+	- Enforce permission checks per action slug before insert/update/off actions.
+- Input validation baseline:
+	- Cast and validate all numeric IDs (`(int)`), required text (`trim` + non-empty), and enums (`in_array` whitelist).
+	- Match validation limits with DB column lengths to avoid silent truncation.
+- Soft-delete baseline:
+	- Never use physical SQL `DELETE`; use `status = 0`.
+	- Default SELECT queries should return active records (`status = 1`) unless user explicitly requests history.
+- UI behavior baseline:
+	- Keep action column first and use lightweight icon actions (`btn btn-link p-0`).
+	- Use inline page forms or dedicated form pages for data operations; avoid modal-based add/edit flows.
+- Upload baseline:
+	- For image uploads, always use `ispts_ImageHelper::ispts_compress()` and save returned filename.
