@@ -109,6 +109,53 @@ if (!$customer) {
   exit;
 }
 
+$packageAmount = 0.0;
+$packageRaw = trim((string) ($customer['package_id'] ?? ''));
+if ($packageRaw !== '') {
+  $packageAmount = (float) preg_replace('/[^\d.]+/', '', $packageRaw);
+}
+
+$billingStartSource = $customer['package_activate_date'] ?? null;
+if (empty($billingStartSource)) {
+  $billingStartSource = $customer['registered_date'] ?? null;
+}
+if (empty($billingStartSource)) {
+  $billingStartSource = $customer['created_at'] ?? null;
+}
+
+$billingStart = !empty($billingStartSource) ? new DateTime((string) $billingStartSource) : new DateTime('now');
+$billingStart->modify('first day of next month');
+
+$billingEnd = new DateTime('first day of this month');
+
+$billingText = trim((string) (($customer['payment'] ?? '') . ' ' . ($customer['invoices'] ?? '')));
+$paidMonths = [];
+if ($billingText !== '') {
+  preg_match_all('/\b(20\d{2})[-\/.](0[1-9]|1[0-2])(?:[-\/.](0[1-9]|[12]\d|3[01]))?\b/', $billingText, $matches, PREG_SET_ORDER);
+  foreach ($matches as $m) {
+    $paidMonths[$m[1] . '-' . $m[2]] = true;
+  }
+}
+
+$billingRows = [];
+$cursor = clone $billingStart;
+$guard = 0;
+while ($cursor <= $billingEnd && $guard < 240) {
+  $monthKey = $cursor->format('Y-m');
+  $billingRows[] = [
+    'bill_date' => $cursor->format('Y-m-01'),
+    'month_label' => $cursor->format('M Y'),
+    'amount' => $packageAmount,
+    'status' => isset($paidMonths[$monthKey]) ? 'paid' : 'unpaid',
+  ];
+  $cursor->modify('+1 month');
+  $guard++;
+}
+$billingRows = array_reverse($billingRows);
+
+$billingPaidCount = count(array_filter($billingRows, static fn($r) => $r['status'] === 'paid'));
+$billingUnpaidCount = count($billingRows) - $billingPaidCount;
+
 $branches = $pdo->query('SELECT branch_id, branch_name FROM branches WHERE status = 1 ORDER BY branch_name ASC')->fetchAll(PDO::FETCH_ASSOC);
 
 // Resolve customer's branch ID
@@ -466,6 +513,12 @@ require '../../includes/header.php';
                 class="fas fa-boxes icon"></span>
               <h6 class="mb-0 text-600">Assets</h6>
             </a></li>
+          <li class="nav-item text-nowrap" role="presentation"><a
+              class="nav-link mb-0 d-flex align-items-center gap-2 py-3 px-x1" id="contact-billing-tab"
+              data-bs-toggle="tab" href="#billing" role="tab" aria-controls="billing" aria-selected="false"><span
+                class="fas fa-file-invoice-dollar icon"></span>
+              <h6 class="mb-0 text-600">Billing</h6>
+            </a></li>
         </ul>
       </div>
       <div class="tab-content">
@@ -797,6 +850,62 @@ require '../../includes/header.php';
                     </form>
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-body tab-pane p-0" id="billing" role="tabpanel" aria-labelledby="contact-billing-tab">
+          <div class="bg-body-tertiary p-x1">
+            <div class="row g-3">
+              <div class="col-lg-8">
+                <div class="card shadow-none">
+                  <div class="card-header bg-white border-bottom border-200 py-2 d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0">Billing Schedule</h6>
+                    <div class="d-flex gap-2">
+                      <span class="badge badge-subtle-success fs-11">Paid: <?= $billingPaidCount ?></span>
+                      <span class="badge badge-subtle-danger fs-11">Unpaid: <?= $billingUnpaidCount ?></span>
+                    </div>
+                  </div>
+                  <div class="card-body p-0">
+                    <div class="table-responsive">
+                      <table class="table table-sm table-striped fs-11 mb-0">
+                        <thead class="bg-200">
+                          <tr>
+                            <th class="ps-x1">Bill Date</th>
+                            <th>Billing Month</th>
+                            <th>Package</th>
+                            <th>Amount</th>
+                            <th class="pe-x1 text-end">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <?php if (empty($billingRows)): ?>
+                            <tr>
+                              <td colspan="5" class="text-center py-3 text-500">No billing schedule available.</td>
+                            </tr>
+                          <?php else: ?>
+                            <?php foreach ($billingRows as $bill): ?>
+                              <tr>
+                                <td class="ps-x1 text-nowrap"><?= date('M d, Y', strtotime($bill['bill_date'])) ?></td>
+                                <td><?= htmlspecialchars($bill['month_label']) ?></td>
+                                <td><?= htmlspecialchars($packageRaw !== '' ? $packageRaw : '-') ?></td>
+                                <td class="fw-semi-bold">Tk <?= number_format((float) $bill['amount'], 2) ?></td>
+                                <td class="pe-x1 text-end">
+                                  <span class="badge badge-subtle-<?= $bill['status'] === 'paid' ? 'success' : 'danger' ?> fs-11">
+                                    <?= strtoupper($bill['status']) ?>
+                                  </span>
+                                </td>
+                              </tr>
+                            <?php endforeach; ?>
+                          <?php endif; ?>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="col-lg-4">
               </div>
             </div>
           </div>
