@@ -26,35 +26,28 @@ if (!function_exists('ispts_is_authenticated')) {
 if (!function_exists('ispts_get_login_path')) {
     function ispts_get_login_path(string $appBasePath = ''): string
     {
-        $prefix = '/' . trim($appBasePath, '/');
-        if ($prefix === '/') {
-            $prefix = '';
-        }
-
-        // Determine if we are already in a virtual route
+        $physicalBase = ispts_get_physical_base_path();
+        
+        ispts_start_session();
         $uriPath = explode('?', $_SERVER['REQUEST_URI'] ?? '')[0];
         
-        // If the current prefix does NOT contain /sadmin, it means it's a company prefix or we are using a generic fallback.
-        // But if the URL already has the company ext (e.g. /friendsonline/), the base path already includes it!
-        // So we can just append /login.php if it's a company route.
-        if (strpos($uriPath, '/sadmin') !== false) {
-            // Strip sadmin from prefix to rebuild clean path
-            $cleanPrefix = preg_replace('#/sadmin$#', '', $prefix);
-            return preg_replace('#/+#', '/', $cleanPrefix . '/sadmin/login.php');
-        } else {
-            // It could be a company route. Let's check if the prefix has something other than /public or empty
-            if (isset($_GET['ext']) && $_GET['ext'] !== '') {
-                $ext = trim($_GET['ext']);
-                $cleanPrefix = preg_replace('#/' . preg_quote($ext, '#') . '$#', '', $prefix);
-                return preg_replace('#/+#', '/', $cleanPrefix . '/' . $ext . '/login.php');
-            } elseif (!empty($_SESSION['auth_uri_extension'])) {
-                $ext = $_SESSION['auth_uri_extension'];
-                $cleanPrefix = preg_replace('#/' . preg_quote($ext, '#') . '$#', '', $prefix);
-                return preg_replace('#/+#', '/', $cleanPrefix . '/' . $ext . '/login.php');
-            }
+        // 1. Check for explicit extension in URL or session
+        $ext = $_GET['ext'] ?? '';
+        if ($ext === '' && !empty($_SESSION['auth_uri_extension'])) {
+            $ext = $_SESSION['auth_uri_extension'];
+        }
+        
+        if ($ext !== '') {
+            return preg_replace('#/+#', '/', $physicalBase . '/' . $ext . '/login.php');
         }
 
-        return preg_replace('#/+#', '/', $prefix . '/sadmin/login.php');
+        // 2. Check if we are in an admin context
+        if (strpos($uriPath, $physicalBase . '/sadmin') !== false || strpos($uriPath, '/sadmin') !== false) {
+             return preg_replace('#/+#', '/', $physicalBase . '/sadmin/login.php');
+        }
+
+        // 3. Default to sadmin login if no context found
+        return preg_replace('#/+#', '/', $physicalBase . '/sadmin/login.php');
     }
 }
 
@@ -70,9 +63,17 @@ if (!function_exists('ispts_get_logout_path')) {
     }
 }
 
-if (!function_exists('ispts_resolve_app_base_path')) {
-    function ispts_resolve_app_base_path(?string $publicRootPath = null): string
+if (!function_exists('ispts_get_physical_base_path')) {
+    /**
+     * Returns the physical root of the application relative to the domain (e.g. /isp360).
+     */
+    function ispts_get_physical_base_path(?string $publicRootPath = null): string
     {
+        static $physicalPath = null;
+        if ($physicalPath !== null && $publicRootPath === null) {
+            return $physicalPath;
+        }
+
         $documentRootPath = isset($_SERVER['DOCUMENT_ROOT']) ? realpath((string) $_SERVER['DOCUMENT_ROOT']) : false;
         $resolvedPublicRootPath = $publicRootPath !== null ? realpath($publicRootPath) : realpath(dirname(__DIR__));
 
@@ -84,29 +85,56 @@ if (!function_exists('ispts_resolve_app_base_path')) {
         $normalizedPublicRoot = rtrim(str_replace('\\', '/', $resolvedPublicRootPath), '/');
 
         if ($normalizedDocumentRoot === '' || strpos($normalizedPublicRoot, $normalizedDocumentRoot) !== 0) {
-            return '';
+            $path = '';
+        } else {
+            $rawPath = substr($normalizedPublicRoot, strlen($normalizedDocumentRoot));
+            // Strip /public from the end to find the project root
+            $path = preg_replace('#/public$#', '', '/' . trim((string) $rawPath, '/'));
+            $path = '/' . trim($path, '/');
+            if ($path === '/') {
+                $path = '';
+            }
         }
 
-        $appBasePath = substr($normalizedPublicRoot, strlen($normalizedDocumentRoot));
-        $appBasePath = '/' . trim((string) $appBasePath, '/');
+        if ($publicRootPath === null) {
+            $physicalPath = $path;
+        }
+        return $path;
+    }
+}
 
+if (!function_exists('ispts_resolve_app_base_path')) {
+    /**
+     * Returns the current virtual base path (e.g. /isp360/friendsonline or /isp360/sadmin).
+     */
+    function ispts_resolve_app_base_path(?string $publicRootPath = null): string
+    {
+        $physicalBase = ispts_get_physical_base_path($publicRootPath);
+        
         ispts_start_session();
         $userType = $_SESSION['user_type'] ?? '';
         $uriPath = explode('?', $_SERVER['REQUEST_URI'] ?? '')[0];
 
+        $virtualPath = $physicalBase;
+
+        // 1. Logged in Staff Context
         if ($userType === 'staff' && !empty($_SESSION['auth_uri_extension'])) {
-            $appBasePath = preg_replace('#/public$#', '/' . $_SESSION['auth_uri_extension'], $appBasePath);
-        } elseif ($userType === 'admin') {
-            $appBasePath = preg_replace('#/public$#', '/sadmin', $appBasePath);
-        } else {
+            $virtualPath = $physicalBase . '/' . $_SESSION['auth_uri_extension'];
+        } 
+        // 2. Logged in Admin Context
+        elseif ($userType === 'admin') {
+            $virtualPath = $physicalBase . '/sadmin';
+        }
+        // 3. Unauthenticated URL-based Context Detection
+        else {
             if (isset($_GET['ext']) && $_GET['ext'] !== '') {
-                $appBasePath = preg_replace('#/public$#', '/' . trim($_GET['ext']), $appBasePath);
-            } elseif (strpos($uriPath, '/sadmin/') !== false) {
-                $appBasePath = preg_replace('#/public$#', '/sadmin', $appBasePath);
+                $virtualPath = $physicalBase . '/' . trim($_GET['ext']);
+            } elseif (strpos($uriPath, $physicalBase . '/sadmin') !== false || strpos($uriPath, '/sadmin') !== false) {
+                $virtualPath = $physicalBase . '/sadmin';
             }
         }
 
-        return $appBasePath === '/' ? '' : $appBasePath;
+        return preg_replace('#/+#', '/', '/' . ltrim($virtualPath, '/'));
     }
 }
 
