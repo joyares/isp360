@@ -24,6 +24,26 @@ $pdo->exec(
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
 );
 
+  $databaseName = (string) $pdo->query('SELECT DATABASE()')->fetchColumn();
+  if ($databaseName !== '') {
+    $companyColumnExistsStmt = $pdo->prepare(
+      'SELECT COUNT(*)
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = :schema
+         AND TABLE_NAME = :table_name
+         AND COLUMN_NAME = :column_name'
+    );
+    $companyColumnExistsStmt->bindValue(':schema', $databaseName);
+    $companyColumnExistsStmt->bindValue(':table_name', 'inventory_vendors');
+    $companyColumnExistsStmt->bindValue(':column_name', 'company_id');
+    $companyColumnExistsStmt->execute();
+    $companyColumnExists = (int) $companyColumnExistsStmt->fetchColumn() > 0;
+
+    if (!$companyColumnExists) {
+      $pdo->exec('ALTER TABLE inventory_vendors ADD COLUMN company_id INT UNSIGNED NOT NULL DEFAULT 0 AFTER vendor_name');
+    }
+  }
+
 $vendorCount = (int) $pdo->query('SELECT COUNT(*) FROM inventory_vendors')->fetchColumn();
 if ($vendorCount === 0) {
     $pdo->exec(
@@ -43,6 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'save_vendor') {
         $vendorId = isset($_POST['vendor_id']) ? (int) $_POST['vendor_id'] : 0;
+      $companyId = isset($_POST['company_id']) ? (int) $_POST['company_id'] : 0;
         $vendorName = trim((string) ($_POST['vendor_name'] ?? ''));
         $contactPerson = trim((string) ($_POST['contact_person'] ?? ''));
         $phone = trim((string) ($_POST['phone'] ?? ''));
@@ -51,7 +72,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $sortOrder = isset($_POST['sort_order']) ? (int) $_POST['sort_order'] : 0;
         $status = isset($_POST['status']) ? 1 : 0;
 
-        if ($vendorName === '') {
+        if ($companyId <= 0) {
+          $alert = ['type' => 'danger', 'message' => 'Please select a company.'];
+        } elseif ($vendorName === '') {
             $alert = ['type' => 'danger', 'message' => 'Vendor/Supplier name is required.'];
         } elseif ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
             $alert = ['type' => 'danger', 'message' => 'Please enter a valid email address.'];
@@ -59,7 +82,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($vendorId > 0) {
                 $stmt = $pdo->prepare(
                     'UPDATE inventory_vendors
-                     SET vendor_name = :vendor_name,
+               SET company_id = :company_id,
+                 vendor_name = :vendor_name,
                          contact_person = :contact_person,
                          phone = :phone,
                          email = :email,
@@ -71,12 +95,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->bindValue(':vendor_id', $vendorId, \PDO::PARAM_INT);
             } else {
                 $stmt = $pdo->prepare(
-                    'INSERT INTO inventory_vendors (vendor_name, contact_person, phone, email, address, sort_order, status)
-                     VALUES (:vendor_name, :contact_person, :phone, :email, :address, :sort_order, :status)'
+                'INSERT INTO inventory_vendors (company_id, vendor_name, contact_person, phone, email, address, sort_order, status)
+                 VALUES (:company_id, :vendor_name, :contact_person, :phone, :email, :address, :sort_order, :status)'
                 );
             }
 
             try {
+              $stmt->bindValue(':company_id', $companyId, \PDO::PARAM_INT);
                 $stmt->bindValue(':vendor_name', $vendorName);
                 $stmt->bindValue(':contact_person', $contactPerson !== '' ? $contactPerson : null, \PDO::PARAM_STR);
                 $stmt->bindValue(':phone', $phone !== '' ? $phone : null, \PDO::PARAM_STR);
@@ -102,6 +127,7 @@ if ($alert === null && isset($_GET['saved'])) {
 $editVendorId = isset($_GET['edit_vendor']) ? (int) $_GET['edit_vendor'] : 0;
 $vendorForm = [
     'vendor_id' => 0,
+  'company_id' => 0,
     'vendor_name' => '',
     'contact_person' => '',
     'phone' => '',
@@ -113,7 +139,7 @@ $vendorForm = [
 
 if ($editVendorId > 0) {
     $stmt = $pdo->prepare(
-        'SELECT vendor_id, vendor_name, contact_person, phone, email, address, sort_order, status
+    'SELECT vendor_id, company_id, vendor_name, contact_person, phone, email, address, sort_order, status
          FROM inventory_vendors
          WHERE vendor_id = :id
          LIMIT 1'
@@ -124,6 +150,7 @@ if ($editVendorId > 0) {
     if ($row) {
         $vendorForm = [
             'vendor_id' => (int) $row['vendor_id'],
+        'company_id' => (int) ($row['company_id'] ?? 0),
             'vendor_name' => (string) $row['vendor_name'],
             'contact_person' => (string) ($row['contact_person'] ?? ''),
             'phone' => (string) ($row['phone'] ?? ''),
@@ -135,9 +162,29 @@ if ($editVendorId > 0) {
     }
 }
 
+$companies = $pdo->query(
+    "SELECT id, company
+     FROM companies
+     WHERE status = 1
+       AND enabled = 1
+       AND deleted_at IS NULL
+       AND company IS NOT NULL
+       AND company <> ''
+     ORDER BY company ASC"
+)->fetchAll(\PDO::FETCH_ASSOC);
+
 $vendors = $pdo->query(
-    'SELECT vendor_id, vendor_name, contact_person, phone, email, sort_order, status
-     FROM inventory_vendors
+    'SELECT v.vendor_id,
+            v.company_id,
+            v.vendor_name,
+            v.contact_person,
+            v.phone,
+            v.email,
+            v.sort_order,
+            v.status,
+            c.company
+     FROM inventory_vendors v
+     LEFT JOIN companies c ON c.id = v.company_id
      ORDER BY sort_order ASC, vendor_name ASC'
 )->fetchAll(\PDO::FETCH_ASSOC);
 
@@ -181,6 +228,7 @@ require '../../includes/header.php';
               <tr>
                 <th class="text-800">Action</th>
                 <th class="text-800">Vendor/Supplier</th>
+                <th class="text-800">Company</th>
                 <th class="text-800">Contact Person</th>
                 <th class="text-800">Phone</th>
                 <th class="text-800">Email</th>
@@ -190,7 +238,7 @@ require '../../includes/header.php';
             </thead>
             <tbody>
               <?php if (empty($vendors)): ?>
-                <tr><td colspan="7" class="text-center py-3 text-600">No vendors found.</td></tr>
+                <tr><td colspan="8" class="text-center py-3 text-600">No vendors found.</td></tr>
               <?php else: ?>
                 <?php foreach ($vendors as $row): ?>
                   <tr>
@@ -198,6 +246,7 @@ require '../../includes/header.php';
                       <a class="btn btn-link p-0" href="<?= $appBasePath ?>/app/inventory/vendors-suppliers.php?edit_vendor=<?= (int) $row['vendor_id'] ?>" data-bs-toggle="tooltip" title="Edit"><span class="fas fa-edit text-500"></span></a>
                     </td>
                     <td><?= htmlspecialchars((string) $row['vendor_name']) ?></td>
+                    <td><?= htmlspecialchars((string) ($row['company'] ?? '-')) ?></td>
                     <td><?= htmlspecialchars((string) ($row['contact_person'] ?? '-')) ?></td>
                     <td><?= htmlspecialchars((string) ($row['phone'] ?? '-')) ?></td>
                     <td><?= htmlspecialchars((string) ($row['email'] ?? '-')) ?></td>
@@ -221,6 +270,18 @@ require '../../includes/header.php';
             <?= ispts_csrf_field() ?>
           <input type="hidden" name="action" value="save_vendor">
           <input type="hidden" name="vendor_id" value="<?= (int) $vendorForm['vendor_id'] ?>">
+
+          <div class="col-12">
+            <label class="form-label" for="company-id">Select company</label>
+            <select class="form-select" id="company-id" name="company_id" required>
+              <option value="" disabled <?= (int) $vendorForm['company_id'] <= 0 ? 'selected' : '' ?>>Select company</option>
+              <?php foreach ($companies as $company): ?>
+                <option value="<?= (int) $company['id'] ?>" <?= (int) $vendorForm['company_id'] === (int) $company['id'] ? 'selected' : '' ?>>
+                  <?= htmlspecialchars((string) $company['company']) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
 
           <div class="col-12">
             <label class="form-label" for="vendor-name">Vendor/Supplier Name</label>
