@@ -9,7 +9,8 @@ try {
     $queries = [
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS auth_uri_extension VARCHAR(255) DEFAULT NULL AFTER company",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS logo_icon VARCHAR(255) DEFAULT NULL",
-        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS logo_main VARCHAR(255) DEFAULT NULL"
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS logo_main VARCHAR(255) DEFAULT NULL",
+        "ALTER TABLE staff_users ADD COLUMN IF NOT EXISTS company_id INT DEFAULT NULL AFTER staff_user_id"
     ];
 
     foreach ($queries as $sql) {
