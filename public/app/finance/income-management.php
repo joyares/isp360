@@ -105,11 +105,10 @@ $form = [
   'account_id' => 0,
   'customer_id' => 0,
   'income_date' => date('Y-m-d'),
-  'payment_method' => 'Cash',
+  'payment_method' => '',
   'discount_amount' => '0',
   'reference_no' => '',
   'note' => '',
-  'get_payment' => 0,
   'status' => 1,
 ];
 $formItems = [];
@@ -155,7 +154,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       'discount_amount' => trim((string) ($_POST['discount_amount'] ?? '0')),
       'reference_no' => trim((string) ($_POST['reference_no'] ?? '')),
       'note' => trim((string) ($_POST['note'] ?? '')),
-      'get_payment' => isset($_POST['get_payment']) ? 1 : 0,
       'status' => isset($_POST['status']) ? 1 : 0,
     ];
 
@@ -163,8 +161,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $accountId = (int) $form['account_id'];
     $customerId = (int) $form['customer_id'];
     $incomeDate = (string) $form['income_date'];
-    $getPayment = (int) $form['get_payment'] === 1;
-    $paymentMethod = $getPayment ? (string) $form['payment_method'] : '';
+    $paymentMethod = in_array((string) $form['payment_method'], $paymentMethods, true) ? (string) $form['payment_method'] : '';
+    $form['payment_method'] = $paymentMethod;
     $discountAmount = is_numeric($form['discount_amount']) ? (float) $form['discount_amount'] : -1;
 
     $accountCompanyId = 0;
@@ -234,7 +232,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $alert = ['type' => 'danger', 'message' => 'Please select a customer.'];
     } elseif ($incomeDate === '' || strtotime($incomeDate) === false) {
       $alert = ['type' => 'danger', 'message' => 'Please select a valid income date.'];
-    } elseif ($getPayment && !in_array($paymentMethod, $paymentMethods, true)) {
+    } elseif (!in_array($paymentMethod, $paymentMethods, true)) {
       $alert = ['type' => 'danger', 'message' => 'Please select a valid payment method.'];
     } elseif ($discountAmount < 0) {
       $alert = ['type' => 'danger', 'message' => 'Discount must be zero or a positive number.'];
@@ -252,7 +250,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->beginTransaction();
 
         if ($incomeId > 0) {
-          $currentPaymentStatusStmt = $pdo->prepare('SELECT payment_status, paid_at, trx_id FROM finance_incomes WHERE income_id = :income_id LIMIT 1');
+          $currentPaymentStatusStmt = $pdo->prepare('SELECT payment_status, paid_at, trx_id, payment_method FROM finance_incomes WHERE income_id = :income_id LIMIT 1');
           $currentPaymentStatusStmt->bindValue(':income_id', $incomeId, PDO::PARAM_INT);
           $currentPaymentStatusStmt->execute();
           $currentIncome = $currentPaymentStatusStmt->fetch(PDO::FETCH_ASSOC);
@@ -261,6 +259,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             throw new RuntimeException('Income not found for update.');
           }
 
+          $existingPaymentStatus = (string) ($currentIncome['payment_status'] ?? 'unpaid');
           $updateStmt = $pdo->prepare(
             'UPDATE finance_incomes
              SET account_id = :account_id,
@@ -290,8 +289,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           $updateStmt->bindValue(':grand_total', number_format($grandTotal, 2, '.', ''));
           $updateStmt->bindValue(':note', $form['note'] !== '' ? $form['note'] : null, PDO::PARAM_STR);
           $updateStmt->bindValue(':reference_no', $form['reference_no'] !== '' ? $form['reference_no'] : null, PDO::PARAM_STR);
-          $updateStmt->bindValue(':payment_status', $getPayment ? 'paid' : 'unpaid');
-          if ($getPayment) {
+          $updateStmt->bindValue(':payment_status', $existingPaymentStatus);
+          if ($existingPaymentStatus === 'paid') {
             $paidAt = !empty($currentIncome['paid_at']) ? (string) $currentIncome['paid_at'] : date('Y-m-d H:i:s');
             $updateStmt->bindValue(':paid_at', $paidAt);
           } else {
@@ -357,12 +356,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           $insertStmt->bindValue(':grand_total', number_format($grandTotal, 2, '.', ''));
           $insertStmt->bindValue(':note', $form['note'] !== '' ? $form['note'] : null, PDO::PARAM_STR);
           $insertStmt->bindValue(':reference_no', $form['reference_no'] !== '' ? $form['reference_no'] : null, PDO::PARAM_STR);
-          $insertStmt->bindValue(':payment_status', $getPayment ? 'paid' : 'unpaid');
-          if ($getPayment) {
-            $insertStmt->bindValue(':paid_at', date('Y-m-d H:i:s'));
-          } else {
-            $insertStmt->bindValue(':paid_at', null, PDO::PARAM_NULL);
-          }
+          $insertStmt->bindValue(':payment_status', 'unpaid');
+          $insertStmt->bindValue(':paid_at', null, PDO::PARAM_NULL);
           $insertStmt->bindValue(':created_by_user_id', $createdByUserId > 0 ? $createdByUserId : null, PDO::PARAM_INT);
           $insertStmt->bindValue(':created_by_name', $createdByName);
           $insertStmt->bindValue(':status', 1, PDO::PARAM_INT);
@@ -443,6 +438,18 @@ $accounts = $pdo->query(
    WHERE fa.status = 1
    ORDER BY c.company ASC, fa.account_name ASC"
 )->fetchAll(PDO::FETCH_ASSOC);
+
+if ((int) $form['account_id'] <= 0) {
+  foreach ($accounts as $account) {
+    if (
+      trim((string) ($account['account_name'] ?? '')) === 'FO Main Account'
+      && trim((string) ($account['company'] ?? '')) === 'Friends online BD'
+    ) {
+      $form['account_id'] = (int) $account['account_id'];
+      break;
+    }
+  }
+}
 
 $customers = $pdo->query(
   "SELECT customer_id,
@@ -568,7 +575,6 @@ if ($editIncomeId > 0) {
       'discount_amount' => (string) $editRow['discount_amount'],
       'reference_no' => (string) ($editRow['reference_no'] ?? ''),
       'note' => (string) ($editRow['note'] ?? ''),
-      'get_payment' => (string) ($editRow['payment_status'] ?? 'unpaid') === 'paid' ? 1 : 0,
     ];
 
     $itemStmt = $pdo->prepare(
@@ -607,7 +613,42 @@ $perPageRaw = (int) ($_GET['per_page'] ?? 10);
 $perPage = in_array($perPageRaw, $perPageOptions, true) ? $perPageRaw : 10;
 $currentPage = max(1, (int) ($_GET['page'] ?? 1));
 
-$totalIncomeCount = (int) $pdo->query("SELECT COUNT(*) FROM finance_incomes WHERE status = 1")->fetchColumn();
+$filterDateFrom = trim((string) ($_GET['date_from'] ?? ''));
+$filterDateTo   = trim((string) ($_GET['date_to']   ?? ''));
+$filterDateFrom = (strlen($filterDateFrom) === 10 && strtotime($filterDateFrom) !== false) ? $filterDateFrom : '';
+$filterDateTo   = (strlen($filterDateTo)   === 10 && strtotime($filterDateTo)   !== false) ? $filterDateTo   : '';
+
+$dateWhere      = '';
+$countDateWhere = '';
+if ($filterDateFrom !== '' && $filterDateTo !== '') {
+  $dateWhere      = ' AND fi.income_date BETWEEN :date_from AND :date_to';
+  $countDateWhere = ' AND income_date BETWEEN :date_from AND :date_to';
+} elseif ($filterDateFrom !== '') {
+  $dateWhere      = ' AND fi.income_date >= :date_from';
+  $countDateWhere = ' AND income_date >= :date_from';
+} elseif ($filterDateTo !== '') {
+  $dateWhere      = ' AND fi.income_date <= :date_to';
+  $countDateWhere = ' AND income_date <= :date_to';
+}
+
+$countStmtTotal = $pdo->prepare("SELECT COUNT(*) FROM finance_incomes WHERE status = 1" . $countDateWhere);
+if ($filterDateFrom !== '') { $countStmtTotal->bindValue(':date_from', $filterDateFrom); }
+if ($filterDateTo   !== '') { $countStmtTotal->bindValue(':date_to',   $filterDateTo); }
+$countStmtTotal->execute();
+$totalIncomeCount = (int) $countStmtTotal->fetchColumn();
+
+$statsRow = $pdo->query(
+  "SELECT
+     COALESCE(SUM(grand_total), 0) AS total_amount,
+     COALESCE(SUM(CASE WHEN payment_status = 'paid'   THEN grand_total ELSE 0 END), 0) AS total_paid,
+     COALESCE(SUM(CASE WHEN payment_status = 'unpaid' THEN grand_total ELSE 0 END), 0) AS total_due
+   FROM finance_incomes
+   WHERE status = 1"
+)->fetch(PDO::FETCH_ASSOC);
+$statTotalAmount = (float) ($statsRow['total_amount'] ?? 0);
+$statTotalPaid   = (float) ($statsRow['total_paid']   ?? 0);
+$statTotalDue    = (float) ($statsRow['total_due']    ?? 0);
+
 $totalPages = $totalIncomeCount > 0 ? (int) ceil($totalIncomeCount / $perPage) : 1;
 $currentPage = min($currentPage, $totalPages);
 $offset = ($currentPage - 1) * $perPage;
@@ -632,12 +673,14 @@ $incomeListStmt = $pdo->prepare(
    LEFT JOIN finance_accounts fa ON fa.account_id = fi.account_id
    LEFT JOIN companies c ON c.id = fi.company_id
    LEFT JOIN customers cu ON cu.customer_id = fi.customer_id
-   WHERE fi.status = 1
+      WHERE fi.status = 1" . $dateWhere . "
    ORDER BY fi.income_date DESC, fi.income_id DESC
    LIMIT :limit OFFSET :offset"
 );
 $incomeListStmt->bindValue(':limit', $perPage, PDO::PARAM_INT);
 $incomeListStmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+    if ($filterDateFrom !== '') { $incomeListStmt->bindValue(':date_from', $filterDateFrom); }
+    if ($filterDateTo   !== '') { $incomeListStmt->bindValue(':date_to',   $filterDateTo); }
 $incomeListStmt->execute();
 $incomeRows = $incomeListStmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -679,87 +722,90 @@ $pageTitle = 'Income Management';
 require '../../includes/header.php';
 ?>
 <link rel="stylesheet" href="<?= $appBasePath ?>/vendors/choices/choices.min.css">
+<link rel="stylesheet" href="<?= $appBasePath ?>/vendors/flatpickr/flatpickr.min.css">
+<style>
+  .choices__list.choices__list--dropdown .choices__item.choices__item--choice.choices__item--selectable:hover,
+  .choices__list.choices__list--dropdown .choices__item.choices__item--choice.choices__item--selectable.is-highlighted {
+    background-color: #0d6efd;
+    color: #fff;
+  }
+</style>
+
 <nav class="mb-2" aria-label="breadcrumb">
-  <ol class="breadcrumb">
+  <ol class="breadcrumb generated-page-breadcrumb mb-0">
     <li class="breadcrumb-item"><a href="<?= $appBasePath ?>/index.php">Home</a></li>
     <li class="breadcrumb-item"><a href="#">Finance</a></li>
-    <li class="breadcrumb-item active">Income Management</li>
+    <li class="breadcrumb-item active" aria-current="page">Income Management</li>
   </ol>
 </nav>
 
+<div class="mb-1 mt-1">
+  <h5 class="mb-0 text-primary position-relative">
+    <span class="bg-200 dark__bg-1100 pe-3"><?= htmlspecialchars($pageTitle) ?></span>
+    <span class="border position-absolute top-50 translate-middle-y w-100 start-0 z-n1"></span>
+  </h5>
+</div>
+
+<?php if ($alert): ?>
+  <div class="alert alert-<?= htmlspecialchars((string) $alert['type']) ?> py-2 mb-3" role="alert">
+    <?= htmlspecialchars((string) $alert['message']) ?>
+  </div>
+<?php endif; ?>
+
+<div class="row g-3 mb-3">
+  <div class="col-sm-6 col-md-3">
+    <div class="card overflow-hidden h-100">
+      <div class="bg-holder bg-card" style="background-image:url(<?= $appBasePath ?>/assets/img/icons/spot-illustrations/corner-1.png);"></div>
+      <div class="card-body position-relative">
+        <h6>Total Invoices</h6>
+        <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-warning"><?= number_format($totalIncomeCount) ?></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-md-3">
+    <div class="card overflow-hidden h-100">
+      <div class="bg-holder bg-card" style="background-image:url(<?= $appBasePath ?>/assets/img/icons/spot-illustrations/corner-2.png);"></div>
+      <div class="card-body position-relative">
+        <h6>Total Invoice Amount</h6>
+        <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-warning"><?= number_format($statTotalAmount, 2) ?></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-md-3">
+    <div class="card overflow-hidden h-100">
+      <div class="bg-holder bg-card" style="background-image:url(<?= $appBasePath ?>/assets/img/icons/spot-illustrations/corner-3.png);"></div>
+      <div class="card-body position-relative">
+        <h6>Total Payments</h6>
+        <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-success"><?= number_format($statTotalPaid, 2) ?></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-md-3">
+    <div class="card overflow-hidden h-100">
+      <div class="bg-holder bg-card" style="background-image:url(<?= $appBasePath ?>/assets/img/icons/spot-illustrations/corner-4.png);"></div>
+      <div class="card-body position-relative">
+        <h6>Total Dues</h6>
+        <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-danger"><?= number_format($statTotalDue, 2) ?></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="row gx-3 gy-3">
-  <div class="col-12">
-    <div class="card">
-      <div class="card-header border-bottom border-200">
-        <h5 class="mb-0">Income Management</h5>
-      </div>
-
-    </div>
-  </div>
-
-  <?php if ($alert): ?>
-    <div class="col-12">
-      <div class="alert alert-<?= htmlspecialchars((string) $alert['type']) ?> py-2" role="alert">
-        <?= htmlspecialchars((string) $alert['message']) ?>
-      </div>
-    </div>
-  <?php endif; ?>
-  <div class="col-12">
-    <div class="row g-3 mb-3">
-      <div class="col-sm-6 col-md-3">
-        <div class="card overflow-hidden" style="min-width: 12rem">
-          <div class="bg-holder bg-card" style="background-image:url(assets/img/icons/spot-illustrations/corner-1.png);"></div><!--/.bg-holder-->
-          <div class="card-body position-relative">
-            <h6>Total Invoices</h6>
-            <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-warning">
-              58.39k
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="col-sm-6 col-md-3">
-        <div class="card overflow-hidden" style="min-width: 12rem">
-          <div class="bg-holder bg-card" style="background-image:url(assets/img/icons/spot-illustrations/corner-2.png);"></div><!--/.bg-holder-->
-          <div class="card-body position-relative">
-            <h6>Total Invoice Amount</h6>
-            <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-warning">
-              58.39k
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="col-sm-6 col-md-3">
-        <div class="card overflow-hidden" style="min-width: 12rem">
-          <div class="bg-holder bg-card" style="background-image:url(assets/img/icons/spot-illustrations/corner-3.png);"></div><!--/.bg-holder-->
-          <div class="card-body position-relative">
-            <h6>Total Payments</h6>
-            <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-warning">
-              58.39k
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="col-sm-6 col-md-3">
-        <div class="card overflow-hidden" style="min-width: 12rem">
-          <div class="bg-holder bg-card" style="background-image:url(assets/img/icons/spot-illustrations/corner-4.png);"></div><!--/.bg-holder-->
-          <div class="card-body position-relative">
-            <h6>Total Dues</h6>
-            <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-warning">
-              58.39k
-            </div>
-          </div>
-        </div>
-      </div>
-
-
-    </div>
-  </div>
   <div class="col-12 col-md-8 col-xxl-8">
     <div class="card h-100">
       <div class="card-header border-bottom border-200 d-flex align-items-center justify-content-between flex-wrap gap-2">
         <h6 class="mb-0">Income List <span class="text-600 fw-normal fs-11">(<?= $totalIncomeCount ?> total)</span></h6>
-        <form method="get" action="<?= $appBasePath ?>/app/finance/income-management.php" class="d-flex align-items-center gap-1">
-          <label class="form-label fs-11 mb-0 text-600">Show</label>
+        <form method="get" action="<?= $appBasePath ?>/app/finance/income-management.php" class="d-flex align-items-center flex-wrap gap-2" id="income-filter-form">
+          <input type="text" class="form-control form-control-sm datetimepicker" id="income-date-range" name="_date_range" placeholder="Date range" style="width:200px;"
+            data-options='{"mode":"range","dateFormat":"Y-m-d","disableMobile":true,"position":"below","predefinedRanges":["today","last_7_days","this_month","last_month","last_30_days"]}'
+            value="<?= $filterDateFrom !== '' ? htmlspecialchars($filterDateFrom . ($filterDateTo !== '' ? ' to ' . $filterDateTo : '')) : '' ?>">
+          <input type="hidden" name="date_from" id="income-date-from" value="<?= htmlspecialchars($filterDateFrom) ?>">
+          <input type="hidden" name="date_to"   id="income-date-to"   value="<?= htmlspecialchars($filterDateTo) ?>">
+          <?php if ($filterDateFrom !== '' || $filterDateTo !== ''): ?>
+            <a class="btn btn-falcon-default btn-sm" href="<?= $appBasePath ?>/app/finance/income-management.php?per_page=<?= $perPage ?>">Clear</a>
+          <?php endif; ?>
+          <label class="form-label fs-11 mb-0 text-600 ms-1">Show</label>
           <select class="form-select form-select-sm" name="per_page" onchange="this.form.submit()" style="width:70px;">
             <?php foreach ($perPageOptions as $opt): ?>
               <option value="<?= $opt ?>" <?= $perPage === $opt ? 'selected' : '' ?>><?= $opt ?></option>
@@ -773,7 +819,7 @@ require '../../includes/header.php';
             <thead class="bg-body-tertiary">
               <tr>
                 <th class="text-800">Action</th>
-                <th class="text-800">TRXID</th>
+                <th class="text-800">TRX ID</th>
                 <th class="text-800">Date</th>
                 <th class="text-800">Company</th>
                 <th class="text-800">Account</th>
@@ -791,13 +837,15 @@ require '../../includes/header.php';
             <tbody>
               <?php if (empty($incomeRows)): ?>
                 <tr>
-                  <td colspan="14" class="text-center py-3 text-600">No incomes found.</td>
+                  <td colspan="14" class="text-center py-3 text-600">No income records found.</td>
                 </tr>
               <?php else: ?>
                 <?php foreach ($incomeRows as $row): ?>
                   <tr>
                     <td>
-                      <a class="btn btn-link p-0 me-1" href="<?= $appBasePath ?>/app/finance/income-management.php?edit_income=<?= (int) $row['income_id'] ?>" data-bs-toggle="tooltip" data-bs-placement="top" title="Edit"><span class="fas fa-edit text-500"></span></a>
+                      <a class="btn btn-link p-0 me-1" href="<?= $appBasePath ?>/app/finance/income-management.php?edit_income=<?= (int) $row['income_id'] ?>" data-bs-toggle="tooltip" data-bs-placement="top" title="Edit">
+                        <span class="fas fa-edit text-500"></span>
+                      </a>
                       <?php if ((string) ($row['payment_status'] ?? 'unpaid') !== 'paid'): ?>
                         <form method="post" action="<?= $appBasePath ?>/app/finance/income-management.php" class="d-inline">
                           <?= ispts_csrf_field() ?>
@@ -871,99 +919,91 @@ require '../../includes/header.php';
   </div>
 
   <div class="col-12 col-md-4 col-xxl-4">
-    <div class="card h-100">
-      <div class="card-header border-bottom border-200">
+    <div class="card">
+      <div class="card-header">
         <h6 class="mb-0"><?= (int) $form['income_id'] > 0 ? 'Update Invoice' : 'Add Invoice' ?></h6>
       </div>
-      <div class="card-body fs-11">
+      <div class="card-body  px-2 py-2">
         <form class="row g-2" method="post" action="<?= $appBasePath ?>/app/finance/income-management.php" id="income-form">
           <?= ispts_csrf_field() ?>
           <input type="hidden" name="action" value="save_income">
           <input type="hidden" name="income_id" value="<?= (int) $form['income_id'] ?>">
 
-          
-            <div class="col-8">
+          <div class="col-8">
+            <select class="form-select form-select-sm" id="income-account" name="account_id" required>
+              <option value="" disabled <?= (int) $form['account_id'] <= 0 ? 'selected' : '' ?>>Select account</option>
+              <?php foreach ($accounts as $account): ?>
+                <option value="<?= (int) $account['account_id'] ?>" <?= (int) $form['account_id'] === (int) $account['account_id'] ? 'selected' : '' ?>>
+                  <?= htmlspecialchars((string) ($account['company'] ?? 'Unknown Company')) ?> - <?= htmlspecialchars((string) $account['account_name']) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
 
-              <select class="form-select" id="income-account" name="account_id" required>
-                <option value="" disabled <?= (int) $form['account_id'] <= 0 ? 'selected' : '' ?>>Select account</option>
-                <?php foreach ($accounts as $account): ?>
-                  <option value="<?= (int) $account['account_id'] ?>" <?= (int) $form['account_id'] === (int) $account['account_id'] ? 'selected' : '' ?>>
-                    <?= htmlspecialchars((string) ($account['company'] ?? 'Unknown Company')) ?> - <?= htmlspecialchars((string) $account['account_name']) ?>
-                  </option>
-                <?php endforeach; ?>
-              </select>
-            </div>
-            <div class="col-4">
+          <div class="col-4">
+            <input class="form-control form-control-sm" id="income-date" name="income_date" type="date" value="<?= htmlspecialchars((string) $form['income_date']) ?>" required>
+          </div>
 
-              <input class="form-control" id="income-date" name="income_date" type="date" value="<?= htmlspecialchars((string) $form['income_date']) ?>" required>
-            </div>
-          
+          <div class="col-12">
+            <select class="form-select form-control-sm" id="income-customer" name="customer_id" required>
+              <option value="" disabled <?= (int) $form['customer_id'] <= 0 ? 'selected' : '' ?>>Search and select customer</option>
+              <?php foreach ($customers as $customer): ?>
+                <?php
+                $customerUsername = trim((string) ($customer['username'] ?? ''));
+                $customerPhone    = trim((string) ($customer['phone_no']  ?? ''));
+                $customerAddress  = trim((string) ($customer['address']   ?? ''));
+                $optionLabel      = $customerUsername !== '' ? $customerUsername : (string) ($customer['display_name'] ?? '');
+                if ($customerPhone !== '') {
+                  $optionLabel .= ' | ' . $customerPhone;
+                }
+                ?>
+                <option value="<?= (int) $customer['customer_id'] ?>"
+                  <?= (int) $form['customer_id'] === (int) $customer['customer_id'] ? 'selected' : '' ?>
+                  data-username="<?= htmlspecialchars($customerUsername) ?>"
+                  data-phone="<?= htmlspecialchars($customerPhone) ?>"
+                  data-address="<?= htmlspecialchars($customerAddress) ?>">
+                  <?= htmlspecialchars($optionLabel) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
 
-          
-            <div class="col-12 mt-2">
-              <select class="form-select" id="income-customer" name="customer_id" required>
-                <option value="" disabled <?= (int) $form['customer_id'] <= 0 ? 'selected' : '' ?>>Search and select customer</option>
-                <?php foreach ($customers as $customer): ?>
-                  <?php
-                  $customerUsername = trim((string) ($customer['username'] ?? ''));
-                  $customerPhone = trim((string) ($customer['phone_no'] ?? ''));
-                  $customerAddress = trim((string) ($customer['address'] ?? ''));
-                  $optionLabel = $customerUsername !== '' ? $customerUsername : (string) ($customer['display_name'] ?? '');
-                  if ($customerPhone !== '') {
-                    $optionLabel .= ' | ' . $customerPhone;
-                  }
-                  ?>
-                  <option value="<?= (int) $customer['customer_id'] ?>" <?= (int) $form['customer_id'] === (int) $customer['customer_id'] ? 'selected' : '' ?> data-username="<?= htmlspecialchars($customerUsername) ?>" data-phone="<?= htmlspecialchars($customerPhone) ?>" data-address="<?= htmlspecialchars($customerAddress) ?>">
-                    <?= htmlspecialchars($optionLabel) ?>
-                  </option>
-                <?php endforeach; ?>
-              </select>
-
-
-              <div class="card mb-2">
-                <div class="card-body position-relative">
-                  <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
-                    <h6 class="mb-0">Customer<span class="badge badge-subtle-info rounded-pill ms-2">Active</span></h6>
-                    <a class="btn btn-link p-0 text-primary" href="#" id="view-customer-link" data-bs-toggle="tooltip" data-bs-placement="top" title="View Customer">
-                      <span class="fas fa-eye fs-9"></span>
-                    </a>
+          <div class="col-12">
+            <div class="card mb-0">
+              <div class="card-body py-2 px-3">
+                <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                  <h6 class="mb-0 fs-10">Customer <span class="badge badge-subtle-info rounded-pill ms-1">Active</span></h6>
+                  <a class="btn btn-link p-0 text-primary" href="#" id="view-customer-link" data-bs-toggle="tooltip" data-bs-placement="top" title="View Customer">
+                    <span class="fas fa-eye fs-9"></span>
+                  </a>
+                </div>
+                <div class="d-flex align-items-center flex-wrap gap-3 mb-1">
+                  <div class="d-flex align-items-center gap-2 min-w-0">
+                    <span class="fas fa-user text-500 fs-9"></span>
+                    <span class="fw-semi-bold fs-10 text-truncate" id="preview-customer-name">-</span>
+                    <button class="btn btn-link p-0 text-primary" type="button" data-bs-toggle="tooltip" data-bs-placement="top" id="copy-customer-name" title="Copy Name">
+                      <span class="fas fa-copy fs-9"></span>
+                    </button>
                   </div>
-
-                  <div class="d-flex align-items-center flex-wrap gap-3 mb-1" id="customer-preview-inline">
-                    <div class="d-flex align-items-center gap-2 min-w-0">
-                      <span class="fas fa-user text-500 fs-9"></span>
-                      <span class="fw-semi-bold fs-10 text-truncate" id="preview-customer-name">-</span>
-                      <button class="btn btn-link p-0 text-primary" type="button" data-bs-toggle="tooltip" data-bs-placement="top" id="copy-customer-name" title="Copy Name">
-                        <span class="fas fa-copy fs-9"></span>
-                      </button>
-                    </div>
-                    <div class="d-flex align-items-center gap-2 min-w-0">
-                      <span class="fas fa-phone text-500 fs-9"></span>
-                      <span class="fw-semi-bold fs-10 text-truncate" id="preview-customer-phone">-</span>
-                      <button class="btn btn-link p-0 text-primary" type="button" data-bs-toggle="tooltip" data-bs-placement="top" id="copy-customer-phone" title="Copy Phone">
-                        <span class="fas fa-copy fs-9"></span>
-                      </button>
-                    </div>
+                  <div class="d-flex align-items-center gap-2 min-w-0">
+                    <span class="fas fa-phone text-500 fs-9"></span>
+                    <span class="fw-semi-bold fs-10 text-truncate" id="preview-customer-phone">-</span>
+                    <button class="btn btn-link p-0 text-primary" type="button" data-bs-toggle="tooltip" data-bs-placement="top" id="copy-customer-phone" title="Copy Phone">
+                      <span class="fas fa-copy fs-9"></span>
+                    </button>
                   </div>
-
-                  <div class="d-flex align-items-start gap-2">
-                    <span class="fas fa-map-marker-alt text-500 fs-9 mt-1"></span>
-                    <span class="fw-semi-bold fs-10 text-700" id="preview-customer-address">No address on record</span>
-                  </div>
+                </div>
+                <div class="d-flex align-items-start gap-2">
+                  <span class="fas fa-map-marker-alt text-500 fs-9 mt-1"></span>
+                  <span class="fw-semi-bold fs-10 text-700" id="preview-customer-address">No address on record</span>
                 </div>
               </div>
             </div>
-          
-
-
-
-
-
-
+          </div>
 
           <div class="col-12">
             <div class="d-flex align-items-center justify-content-between mb-2">
-              <label class="form-label mb-0">Income Items</label>
+              <label class="form-label mb-0">Billing Items</label>
               <button class="btn btn-falcon-default btn-sm" type="button" id="add-income-item">Add Item</button>
             </div>
             <div class="table-responsive border rounded">
@@ -981,52 +1021,49 @@ require '../../includes/header.php';
             </div>
           </div>
 
-  <div class="col-4 mt-2">
-            
-            <input class="form-control" id="income-reference" name="reference_no" type="text" placeholder="Refference" value="<?= htmlspecialchars((string) $form['reference_no']) ?>">
-          </div>
-
-          <div class="col-8 mt-2 mb-2">
-            
-            <textarea class="form-control" id="income-note" name="note" rows="2" placeholder="Any Note"><?= htmlspecialchars((string) $form['note']) ?></textarea>
-          </div>
-
           
 
           <div class="col-12">
-            <div class="row g-2">
-              <div class="col-12">
-                <div class="border rounded p-2 bg-body-tertiary">
-                  <div class="d-flex justify-content-between"><span>Summary Total</span><strong id="summary-total">0.00</strong></div>
-                  <div class="mt-2">
-                    <label class="form-label fs-11 mb-1" for="discount-amount">Discount</label>
-                    <input class="form-control form-control-sm" id="discount-amount" name="discount_amount" type="number" min="0" step="0.01" value="<?= htmlspecialchars((string) $form['discount_amount']) ?>">
-                  </div>
-                  <div class="d-flex justify-content-between mt-2 border-top pt-2"><span>Grand Total</span><strong id="grand-total">0.00</strong></div>
-                </div>
+            <div class="p-2">
+              <div class="d-flex justify-content-between">
+                <span>Summary Total</span>
+                <strong id="summary-total">0.00</strong>
+              </div>
+              <div class="d-flex align-items-center justify-content-between mt-2">
+                <label class="form-label fs-11 mb-0" for="discount-amount">Discount</label>
+                <input class="form-control form-control-sm w-50" id="discount-amount" name="discount_amount" type="number" min="0" step="0.01" value="<?= htmlspecialchars((string) $form['discount_amount']) ?>">
+              </div>
+              <div class="d-flex justify-content-between mt-2 border-top pt-2">
+                <span>Grand Total</span>
+                <strong id="grand-total">0.00</strong>
               </div>
             </div>
           </div>
 
-          <div class="col-12">
-            <div class="d-flex align-items-center justify-content-between">
-              <label class="form-label mb-0" for="income-get-payment">Get Payment</label>
-              <div class="form-check form-switch m-0">
-                <input class="form-check-input" id="income-get-payment" type="checkbox" name="get_payment" value="1" <?= (int) $form['get_payment'] === 1 ? 'checked' : '' ?>>
+          <div class="col-12 d-flex justify-content-end gap-2 flex-wrap">
+            
+            <input type="hidden" id="income-payment-method" name="payment_method" value="<?= htmlspecialchars((string) $form['payment_method']) ?>">
+            <div class="btn-group mb-0">
+              <button class="btn btn-primary btn-sm dropdown-toggle" id="income-payment-method-toggle" type="button" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                <?= htmlspecialchars(trim((string) $form['payment_method']) !== '' ? (string) $form['payment_method'] : 'Select Payment Method') ?>
+              </button>
+              <div class="dropdown-menu" id="income-payment-method-menu">
+                <?php foreach ($paymentMethods as $method): ?>
+                  <button class="dropdown-item<?= (string) $form['payment_method'] === $method ? ' active' : '' ?>" type="button" data-value="<?= htmlspecialchars($method) ?>">
+                    <?= htmlspecialchars($method) ?>
+                  </button>
+                <?php endforeach; ?>
               </div>
             </div>
           </div>
 
-          <div class="col-12 d-none" id="payment-method-wrap">
-            <label class="form-label" for="income-payment-method">Payment Method</label>
-            <select class="form-select" id="income-payment-method" name="payment_method">
-              <option value="" disabled <?= trim((string) $form['payment_method']) === '' ? 'selected' : '' ?>>Select payment method</option>
-              <?php foreach ($paymentMethods as $method): ?>
-                <option value="<?= htmlspecialchars($method) ?>" <?= (string) $form['payment_method'] === $method ? 'selected' : '' ?>>
-                  <?= htmlspecialchars($method) ?>
-                </option>
-              <?php endforeach; ?>
-            </select>
+
+          <div class="col-4">
+            <input class="form-control form-control-sm" id="income-reference" name="reference_no" type="text" placeholder="Reference" value="<?= htmlspecialchars((string) $form['reference_no']) ?>">
+          </div>
+
+          <div class="col-8">
+            <textarea class="form-control form-control-sm" id="income-note" name="note" rows="1" placeholder="Note"><?= htmlspecialchars((string) $form['note']) ?></textarea>
           </div>
 
           <div class="col-12 d-flex justify-content-end gap-2">
@@ -1040,6 +1077,40 @@ require '../../includes/header.php';
 </div>
 
 <script src="<?= $appBasePath ?>/vendors/choices/choices.min.js"></script>
+<script src="<?= $appBasePath ?>/vendors/flatpickr/flatpickr.min.js"></script>
+<script>
+(function () {
+  var rangeInput = document.getElementById('income-date-range');
+  var hiddenFrom = document.getElementById('income-date-from');
+  var hiddenTo   = document.getElementById('income-date-to');
+  var filterForm = document.getElementById('income-filter-form');
+
+  if (!rangeInput || !hiddenFrom || !hiddenTo || !flatpickr) { return; }
+
+  flatpickr(rangeInput, {
+    mode: 'range',
+    dateFormat: 'Y-m-d',
+    disableMobile: true,
+    defaultDate: [hiddenFrom.value || null, hiddenTo.value || null].filter(Boolean),
+    predefinedRanges: ['today', 'last_7_days', 'this_month', 'last_month', 'last_30_days'],
+    onChange: function (selectedDates) {
+      if (selectedDates.length === 2) {
+        var fmt = function (d) {
+          return d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
+        };
+        hiddenFrom.value = fmt(selectedDates[0]);
+        hiddenTo.value   = fmt(selectedDates[1]);
+        filterForm.submit();
+      } else if (selectedDates.length === 0) {
+        hiddenFrom.value = '';
+        hiddenTo.value   = '';
+      }
+    },
+  });
+})();
+</script>
 <script>
   (function() {
     var PRODUCTS = <?= $jsProducts ?: '[]' ?>;
@@ -1060,28 +1131,11 @@ require '../../includes/header.php';
     var viewCustomerLink = document.getElementById('view-customer-link');
     var copyCustomerName = document.getElementById('copy-customer-name');
     var copyCustomerPhone = document.getElementById('copy-customer-phone');
-    var getPaymentInput = document.getElementById('income-get-payment');
-    var paymentMethodWrap = document.getElementById('payment-method-wrap');
-    var paymentMethodSelect = document.getElementById('income-payment-method');
-
+    var paymentMethodInput = document.getElementById('income-payment-method');
+    var paymentMethodToggle = document.getElementById('income-payment-method-toggle');
+    var paymentMethodMenu = document.getElementById('income-payment-method-menu');
     if (!form || !customerSelect || !addItemBtn || !itemsBody || !discountInput || !summaryTotalEl || !grandTotalEl) {
       return;
-    }
-
-    function syncPaymentMethodState() {
-      if (!getPaymentInput || !paymentMethodWrap || !paymentMethodSelect) {
-        return;
-      }
-
-      var enabled = !!getPaymentInput.checked;
-      paymentMethodWrap.classList.toggle('d-none', !enabled);
-      paymentMethodSelect.required = enabled;
-
-      if (!enabled) {
-        paymentMethodSelect.value = '';
-      } else if (!paymentMethodSelect.value && paymentMethodSelect.options.length > 1) {
-        paymentMethodSelect.selectedIndex = 1;
-      }
     }
 
     if (window.Choices) {
@@ -1357,13 +1411,13 @@ require '../../includes/header.php';
 
       var tr = document.createElement('tr');
       tr.innerHTML = '' +
-        '<td style="min-width:130px;">' +
+        '<td style="min-width:180px;">' +
         '  <select class="form-select form-select-sm js-item-type" name="items[' + idx + '][item_type]" required>' +
         '    <option value="monthly_bill"' + (itemType === 'monthly_bill' ? ' selected' : '') + '>Monthly Bill</option>' +
         '    <option value="other_charge"' + (itemType === 'other_charge' ? ' selected' : '') + '>Others</option>' +
         '  </select>' +
         '</td>' +
-        '<td style="min-width:200px;">' +
+        '<td style="min-width:100px;">' +
         '  <div class="js-month-wrap d-none">' +
         '    <select class="form-select form-select-sm js-month-select"></select>' +
         '  </div>' +
@@ -1415,8 +1469,27 @@ require '../../includes/header.php';
     });
 
     discountInput.addEventListener('input', recalcTotals);
-    if (getPaymentInput) {
-      getPaymentInput.addEventListener('change', syncPaymentMethodState);
+
+    if (paymentMethodInput && paymentMethodToggle && paymentMethodMenu) {
+      paymentMethodMenu.addEventListener('click', function(event) {
+        var target = event.target;
+        if (!target || !target.classList.contains('dropdown-item')) {
+          return;
+        }
+
+        var selectedValue = target.getAttribute('data-value') || '';
+        if (selectedValue === '') {
+          return;
+        }
+
+        paymentMethodInput.value = selectedValue;
+        paymentMethodToggle.textContent = selectedValue;
+
+        Array.prototype.forEach.call(paymentMethodMenu.querySelectorAll('.dropdown-item'), function(item) {
+          item.classList.remove('active');
+        });
+        target.classList.add('active');
+      });
     }
 
     if (Array.isArray(INITIAL_ITEMS) && INITIAL_ITEMS.length > 0) {
@@ -1432,7 +1505,6 @@ require '../../includes/header.php';
     }
 
     updateCustomerPreview();
-    syncPaymentMethodState();
     recalcTotals();
   })();
 </script>
