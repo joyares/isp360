@@ -561,7 +561,58 @@ $vendors = $pdo->query(
      ORDER BY vendor_name ASC'
 )->fetchAll(\PDO::FETCH_ASSOC);
 
-$expenses = $pdo->query(
+$perPageOptions = [10, 20, 50];
+$perPageRaw = (int) ($_GET['per_page'] ?? 10);
+$perPage = in_array($perPageRaw, $perPageOptions, true) ? $perPageRaw : 10;
+$currentPage = max(1, (int) ($_GET['page'] ?? 1));
+
+$filterDateFrom = trim((string) ($_GET['date_from'] ?? ''));
+$filterDateTo   = trim((string) ($_GET['date_to']   ?? ''));
+$filterDateFrom = (strlen($filterDateFrom) === 10 && strtotime($filterDateFrom) !== false) ? $filterDateFrom : '';
+$filterDateTo   = (strlen($filterDateTo)   === 10 && strtotime($filterDateTo)   !== false) ? $filterDateTo   : '';
+
+$dateWhere      = '';
+$countDateWhere = '';
+if ($filterDateFrom !== '' && $filterDateTo !== '') {
+  $dateWhere      = ' AND fe.expense_date BETWEEN :date_from AND :date_to';
+  $countDateWhere = ' AND expense_date BETWEEN :date_from AND :date_to';
+} elseif ($filterDateFrom !== '') {
+  $dateWhere      = ' AND fe.expense_date >= :date_from';
+  $countDateWhere = ' AND expense_date >= :date_from';
+} elseif ($filterDateTo !== '') {
+  $dateWhere      = ' AND fe.expense_date <= :date_to';
+  $countDateWhere = ' AND expense_date <= :date_to';
+}
+
+$expCountStmt = $pdo->prepare('SELECT COUNT(*) FROM finance_expenses WHERE status = 1' . $countDateWhere);
+if ($filterDateFrom !== '') { $expCountStmt->bindValue(':date_from', $filterDateFrom); }
+if ($filterDateTo   !== '') { $expCountStmt->bindValue(':date_to',   $filterDateTo); }
+$expCountStmt->execute();
+$totalExpenseCount = (int) $expCountStmt->fetchColumn();
+
+$expStatsRow = $pdo->query(
+  "SELECT
+     COALESCE(SUM(amount), 0) AS total_amount,
+     COALESCE(SUM(CASE WHEN payment_method = 'Cash'  THEN amount ELSE 0 END), 0) AS total_cash,
+     COALESCE(SUM(CASE WHEN payment_method = 'Bkash' THEN amount ELSE 0 END), 0) AS total_bkash,
+     COALESCE(SUM(CASE WHEN payment_method = 'Nagad' THEN amount ELSE 0 END), 0) AS total_nagad,
+     COALESCE(SUM(CASE WHEN payment_method = 'Bank'  THEN amount ELSE 0 END), 0) AS total_bank,
+     COALESCE(SUM(CASE WHEN payment_method NOT IN ('Cash','Bkash','Nagad','Bank') THEN amount ELSE 0 END), 0) AS total_other
+   FROM finance_expenses
+   WHERE status = 1"
+)->fetch(\PDO::FETCH_ASSOC);
+$statExpTotal  = (float) ($expStatsRow['total_amount'] ?? 0);
+$statExpCash   = (float) ($expStatsRow['total_cash']   ?? 0);
+$statExpBkash  = (float) ($expStatsRow['total_bkash']  ?? 0);
+$statExpNagad  = (float) ($expStatsRow['total_nagad']  ?? 0);
+$statExpBank   = (float) ($expStatsRow['total_bank']   ?? 0);
+$statExpOther  = (float) ($expStatsRow['total_other']  ?? 0);
+
+$totalPages = $totalExpenseCount > 0 ? (int) ceil($totalExpenseCount / $perPage) : 1;
+$currentPage = min($currentPage, $totalPages);
+$offset = ($currentPage - 1) * $perPage;
+
+$expListStmt = $pdo->prepare(
     'SELECT fe.expense_id,
       fe.trx_id,
             fe.expense_date,
@@ -581,12 +632,21 @@ $expenses = $pdo->query(
      LEFT JOIN expense_categories ec ON ec.category_id = fe.category_id
      LEFT JOIN expense_sub_categories esc ON esc.sub_category_id = fe.sub_category_id
      LEFT JOIN inventory_vendors iv ON iv.vendor_id = fe.vendor_id
-     ORDER BY fe.expense_date DESC, fe.expense_id DESC'
-)->fetchAll(\PDO::FETCH_ASSOC);
+     WHERE fe.status = 1' . $dateWhere . '
+     ORDER BY fe.expense_date DESC, fe.expense_id DESC
+     LIMIT :limit OFFSET :offset'
+);
+$expListStmt->bindValue(':limit', $perPage, PDO::PARAM_INT);
+$expListStmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+if ($filterDateFrom !== '') { $expListStmt->bindValue(':date_from', $filterDateFrom); }
+if ($filterDateTo   !== '') { $expListStmt->bindValue(':date_to',   $filterDateTo); }
+$expListStmt->execute();
+$expenses = $expListStmt->fetchAll(\PDO::FETCH_ASSOC);
 
 $pageTitle = 'Expense Management';
 require '../../includes/header.php';
 ?>
+<link rel="stylesheet" href="<?= $appBasePath ?>/vendors/flatpickr/flatpickr.min.css">
 <nav class="mb-2" aria-label="breadcrumb">
   <ol class="breadcrumb">
     <li class="breadcrumb-item"><a href="<?= $appBasePath ?>/index.php">Home</a></li>
@@ -595,29 +655,94 @@ require '../../includes/header.php';
   </ol>
 </nav>
 
-<div class="row gx-3 gy-3">
-  <div class="col-12">
-    <div class="card">
-      <div class="card-header border-bottom border-200">
-        <h5 class="mb-0">Expense Management</h5>
-      </div>
-      <div class="card-body">
-        <p class="text-700 mb-0">Add expense entries and track who created each transaction.</p>
+<div class="mb-1 mt-1">
+  <h5 class="mb-0 text-primary position-relative">
+    <span class="bg-200 dark__bg-1100 pe-3"><?= htmlspecialchars($pageTitle) ?></span>
+    <span class="border position-absolute top-50 translate-middle-y w-100 start-0 z-n1"></span>
+  </h5>
+</div>
+
+<?php if ($alert): ?>
+  <div class="alert alert-<?= htmlspecialchars((string) $alert['type']) ?> py-2 mb-3" role="alert">
+    <?= htmlspecialchars((string) $alert['message']) ?>
+  </div>
+<?php endif; ?>
+
+<div class="row g-3 mb-3">
+  <div class="col-sm-6 col-md-3">
+    <div class="card overflow-hidden h-100">
+      <div class="bg-holder bg-card" style="background-image:url(<?= $appBasePath ?>/assets/img/icons/spot-illustrations/corner-1.png);"></div>
+      <div class="card-body position-relative">
+        <h6>Total Expenses</h6>
+        <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-warning"><?= number_format($totalExpenseCount) ?></div>
       </div>
     </div>
   </div>
-
-  <?php if ($alert): ?>
-    <div class="col-12">
-      <div class="alert alert-<?= htmlspecialchars((string) $alert['type']) ?> py-2" role="alert">
-        <?= htmlspecialchars((string) $alert['message']) ?>
+  <div class="col-sm-6 col-md-3">
+    <div class="card overflow-hidden h-100">
+      <div class="bg-holder bg-card" style="background-image:url(<?= $appBasePath ?>/assets/img/icons/spot-illustrations/corner-2.png);"></div>
+      <div class="card-body position-relative">
+        <h6>Total Invoice Amount</h6>
+        <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-warning"><?= number_format($statExpTotal, 2) ?></div>
       </div>
     </div>
-  <?php endif; ?>
+  </div>
+  <div class="col-sm-12 col-md-6">
+    <div class="card overflow-hidden h-100">
+      <div class="bg-holder bg-card" style="background-image:url(<?= $appBasePath ?>/assets/img/icons/spot-illustrations/corner-3.png);"></div>
+      <div class="card-body position-relative">
+        <h6>Total Payments</h6>
+        <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-success"><?= number_format($statExpTotal, 2) ?></div>
+        <div class="d-flex flex-wrap gap-3">
+          <div class="d-flex gap-2 align-items-center">
+            <div class="vr rounded ps-1 bg-success"></div>
+            <h6 class="lh-base text-700 mb-0">Cash: <?= number_format($statExpCash, 2) ?></h6>
+          </div>
+          <div class="d-flex gap-2 align-items-center">
+            <div class="vr rounded ps-1 bg-info"></div>
+            <h6 class="lh-base text-700 mb-0">Bkash: <?= number_format($statExpBkash, 2) ?></h6>
+          </div>
+          <div class="d-flex gap-2 align-items-center">
+            <div class="vr rounded ps-1 bg-warning"></div>
+            <h6 class="lh-base text-700 mb-0">Nagad: <?= number_format($statExpNagad, 2) ?></h6>
+          </div>
+          <div class="d-flex gap-2 align-items-center">
+            <div class="vr rounded ps-1 bg-primary"></div>
+            <h6 class="lh-base text-700 mb-0">Bank: <?= number_format($statExpBank, 2) ?></h6>
+          </div>
+          <div class="d-flex gap-2 align-items-center">
+            <div class="vr rounded ps-1 bg-secondary"></div>
+            <h6 class="lh-base text-700 mb-0">Others: <?= number_format($statExpOther, 2) ?></h6>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row gx-3 gy-3">
 
   <div class="col-12 col-md-8 col-xxl-8">
     <div class="card h-100">
-      <div class="card-header border-bottom border-200"><h6 class="mb-0">Expense List</h6></div>
+      <div class="card-header border-bottom border-200 d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <h6 class="mb-0">Expense List <span class="text-600 fw-normal fs-11">(<?= $totalExpenseCount ?> total)</span></h6>
+        <form method="get" action="<?= $appBasePath ?>/app/finance/expense-management.php" class="d-flex align-items-center flex-wrap gap-2" id="expense-filter-form">
+          <input type="text" class="form-control form-control-sm datetimepicker" id="expense-date-range" name="_date_range" placeholder="Date range" style="width:200px;"
+            data-options='{"mode":"range","dateFormat":"Y-m-d","disableMobile":true,"position":"below"}'
+            value="<?= $filterDateFrom !== '' ? htmlspecialchars($filterDateFrom . ($filterDateTo !== '' ? ' to ' . $filterDateTo : '')) : '' ?>">
+          <input type="hidden" name="date_from" id="expense-date-from" value="<?= htmlspecialchars($filterDateFrom) ?>">
+          <input type="hidden" name="date_to"   id="expense-date-to"   value="<?= htmlspecialchars($filterDateTo) ?>">
+          <?php if ($filterDateFrom !== '' || $filterDateTo !== ''): ?>
+            <a class="btn btn-falcon-default btn-sm" href="<?= $appBasePath ?>/app/finance/expense-management.php?per_page=<?= $perPage ?>">Clear</a>
+          <?php endif; ?>
+          <label class="form-label fs-11 mb-0 text-600 ms-1">Show</label>
+          <select class="form-select form-select-sm" name="per_page" onchange="this.form.submit()" style="width:70px;">
+            <?php foreach ($perPageOptions as $opt): ?>
+              <option value="<?= $opt ?>" <?= $perPage === $opt ? 'selected' : '' ?>><?= $opt ?></option>
+            <?php endforeach; ?>
+          </select>
+        </form>
+      </div>
       <div class="card-body p-0">
         <div class="table-responsive scrollbar">
           <table class="table table-sm fs-10 mb-0">
@@ -640,7 +765,7 @@ require '../../includes/header.php';
             </thead>
             <tbody>
               <?php if (empty($expenses)): ?>
-                <tr><td colspan="13" class="text-center py-3 text-600">No expenses found.</td></tr>
+                <tr><td colspan="13" class="text-center py-3 text-600">No expense records found.</td></tr>
               <?php else: ?>
                 <?php foreach ($expenses as $row): ?>
                   <tr>
@@ -666,6 +791,22 @@ require '../../includes/header.php';
           </table>
         </div>
       </div>
+      <?php if ($totalPages > 1): ?>
+      <div class="card-footer d-flex align-items-center justify-content-between">
+        <small class="text-600">Page <?= $currentPage ?> of <?= $totalPages ?></small>
+        <ul class="pagination pagination-sm mb-0">
+          <?php if ($currentPage > 1): ?>
+            <li class="page-item"><a class="page-link" href="?page=<?= $currentPage - 1 ?>&per_page=<?= $perPage ?><?= $filterDateFrom !== '' ? '&date_from=' . urlencode($filterDateFrom) : '' ?><?= $filterDateTo !== '' ? '&date_to=' . urlencode($filterDateTo) : '' ?>">&#8249;</a></li>
+          <?php endif; ?>
+          <?php for ($p = max(1, $currentPage - 2); $p <= min($totalPages, $currentPage + 2); $p++): ?>
+            <li class="page-item <?= $p === $currentPage ? 'active' : '' ?>"><a class="page-link" href="?page=<?= $p ?>&per_page=<?= $perPage ?><?= $filterDateFrom !== '' ? '&date_from=' . urlencode($filterDateFrom) : '' ?><?= $filterDateTo !== '' ? '&date_to=' . urlencode($filterDateTo) : '' ?>"><?= $p ?></a></li>
+          <?php endfor; ?>
+          <?php if ($currentPage < $totalPages): ?>
+            <li class="page-item"><a class="page-link" href="?page=<?= $currentPage + 1 ?>&per_page=<?= $perPage ?><?= $filterDateFrom !== '' ? '&date_from=' . urlencode($filterDateFrom) : '' ?><?= $filterDateTo !== '' ? '&date_to=' . urlencode($filterDateTo) : '' ?>">&#8250;</a></li>
+          <?php endif; ?>
+        </ul>
+      </div>
+      <?php endif; ?>
     </div>
   </div>
 
@@ -921,5 +1062,38 @@ require '../../includes/header.php';
 })();
 </script>
 
+<script src="<?= $appBasePath ?>/vendors/flatpickr/flatpickr.min.js"></script>
+<script>
+(function () {
+  var rangeInput = document.getElementById('expense-date-range');
+  var hiddenFrom = document.getElementById('expense-date-from');
+  var hiddenTo   = document.getElementById('expense-date-to');
+  var filterForm = document.getElementById('expense-filter-form');
+
+  if (!rangeInput || !hiddenFrom || !hiddenTo || typeof flatpickr === 'undefined') { return; }
+
+  flatpickr(rangeInput, {
+    mode: 'range',
+    dateFormat: 'Y-m-d',
+    disableMobile: true,
+    defaultDate: [hiddenFrom.value || null, hiddenTo.value || null].filter(Boolean),
+    onChange: function (selectedDates) {
+      if (selectedDates.length === 2) {
+        var fmt = function (d) {
+          return d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
+        };
+        hiddenFrom.value = fmt(selectedDates[0]);
+        hiddenTo.value   = fmt(selectedDates[1]);
+        filterForm.submit();
+      } else if (selectedDates.length === 0) {
+        hiddenFrom.value = '';
+        hiddenTo.value   = '';
+      }
+    },
+  });
+})();
+</script>
 <?php
 require '../../includes/footer.php';

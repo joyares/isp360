@@ -356,8 +356,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           $insertStmt->bindValue(':grand_total', number_format($grandTotal, 2, '.', ''));
           $insertStmt->bindValue(':note', $form['note'] !== '' ? $form['note'] : null, PDO::PARAM_STR);
           $insertStmt->bindValue(':reference_no', $form['reference_no'] !== '' ? $form['reference_no'] : null, PDO::PARAM_STR);
-          $insertStmt->bindValue(':payment_status', 'unpaid');
-          $insertStmt->bindValue(':paid_at', null, PDO::PARAM_NULL);
+          $insertStmt->bindValue(':payment_status', 'paid');
+          $insertStmt->bindValue(':paid_at', date('Y-m-d H:i:s'));
           $insertStmt->bindValue(':created_by_user_id', $createdByUserId > 0 ? $createdByUserId : null, PDO::PARAM_INT);
           $insertStmt->bindValue(':created_by_name', $createdByName);
           $insertStmt->bindValue(':status', 1, PDO::PARAM_INT);
@@ -641,13 +641,23 @@ $statsRow = $pdo->query(
   "SELECT
      COALESCE(SUM(grand_total), 0) AS total_amount,
      COALESCE(SUM(CASE WHEN payment_status = 'paid'   THEN grand_total ELSE 0 END), 0) AS total_paid,
-     COALESCE(SUM(CASE WHEN payment_status = 'unpaid' THEN grand_total ELSE 0 END), 0) AS total_due
+     COALESCE(SUM(CASE WHEN payment_status = 'unpaid' THEN grand_total ELSE 0 END), 0) AS total_due,
+     COALESCE(SUM(CASE WHEN payment_status = 'paid' AND payment_method = 'Cash'  THEN grand_total ELSE 0 END), 0) AS total_paid_cash,
+     COALESCE(SUM(CASE WHEN payment_status = 'paid' AND payment_method = 'Bkash' THEN grand_total ELSE 0 END), 0) AS total_paid_bkash,
+     COALESCE(SUM(CASE WHEN payment_status = 'paid' AND payment_method = 'Nagad' THEN grand_total ELSE 0 END), 0) AS total_paid_nagad,
+     COALESCE(SUM(CASE WHEN payment_status = 'paid' AND payment_method = 'Bank'  THEN grand_total ELSE 0 END), 0) AS total_paid_bank,
+     COALESCE(SUM(CASE WHEN payment_status = 'paid' AND payment_method NOT IN ('Cash', 'Bkash', 'Nagad', 'Bank') THEN grand_total ELSE 0 END), 0) AS total_paid_other
    FROM finance_incomes
    WHERE status = 1"
 )->fetch(PDO::FETCH_ASSOC);
 $statTotalAmount = (float) ($statsRow['total_amount'] ?? 0);
 $statTotalPaid   = (float) ($statsRow['total_paid']   ?? 0);
 $statTotalDue    = (float) ($statsRow['total_due']    ?? 0);
+$statPaidCash    = (float) ($statsRow['total_paid_cash']  ?? 0);
+$statPaidBkash   = (float) ($statsRow['total_paid_bkash'] ?? 0);
+$statPaidNagad   = (float) ($statsRow['total_paid_nagad'] ?? 0);
+$statPaidBank    = (float) ($statsRow['total_paid_bank']  ?? 0);
+$statPaidOther   = (float) ($statsRow['total_paid_other'] ?? 0);
 
 $totalPages = $totalIncomeCount > 0 ? (int) ceil($totalIncomeCount / $perPage) : 1;
 $currentPage = min($currentPage, $totalPages);
@@ -771,24 +781,38 @@ require '../../includes/header.php';
       </div>
     </div>
   </div>
-  <div class="col-sm-6 col-md-3">
+  <div class="col-sm-12 col-md-6">
     <div class="card overflow-hidden h-100">
       <div class="bg-holder bg-card" style="background-image:url(<?= $appBasePath ?>/assets/img/icons/spot-illustrations/corner-3.png);"></div>
       <div class="card-body position-relative">
         <h6>Total Payments</h6>
         <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-success"><?= number_format($statTotalPaid, 2) ?></div>
+        <div class="d-flex flex-wrap gap-3">
+          <div class="d-flex gap-2 align-items-center">
+            <div class="vr rounded ps-1 bg-success"></div>
+            <h6 class="lh-base text-700 mb-0">Cash: <?= number_format($statPaidCash, 2) ?></h6>
+          </div>
+          <div class="d-flex gap-2 align-items-center">
+            <div class="vr rounded ps-1 bg-info"></div>
+            <h6 class="lh-base text-700 mb-0">Bkash: <?= number_format($statPaidBkash, 2) ?></h6>
+          </div>
+          <div class="d-flex gap-2 align-items-center">
+            <div class="vr rounded ps-1 bg-warning"></div>
+            <h6 class="lh-base text-700 mb-0">Nagad: <?= number_format($statPaidNagad, 2) ?></h6>
+          </div>
+          <div class="d-flex gap-2 align-items-center">
+            <div class="vr rounded ps-1 bg-primary"></div>
+            <h6 class="lh-base text-700 mb-0">Bank: <?= number_format($statPaidBank, 2) ?></h6>
+          </div>
+          <div class="d-flex gap-2 align-items-center">
+            <div class="vr rounded ps-1 bg-secondary"></div>
+            <h6 class="lh-base text-700 mb-0">Others: <?= number_format($statPaidOther, 2) ?></h6>
+          </div>
+        </div>
       </div>
     </div>
   </div>
-  <div class="col-sm-6 col-md-3">
-    <div class="card overflow-hidden h-100">
-      <div class="bg-holder bg-card" style="background-image:url(<?= $appBasePath ?>/assets/img/icons/spot-illustrations/corner-4.png);"></div>
-      <div class="card-body position-relative">
-        <h6>Total Dues</h6>
-        <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-danger"><?= number_format($statTotalDue, 2) ?></div>
-      </div>
-    </div>
-  </div>
+  
 </div>
 
 <div class="row gx-3 gy-3">
@@ -846,16 +870,7 @@ require '../../includes/header.php';
                       <a class="btn btn-link p-0 me-1" href="<?= $appBasePath ?>/app/finance/income-management.php?edit_income=<?= (int) $row['income_id'] ?>" data-bs-toggle="tooltip" data-bs-placement="top" title="Edit">
                         <span class="fas fa-edit text-500"></span>
                       </a>
-                      <?php if ((string) ($row['payment_status'] ?? 'unpaid') !== 'paid'): ?>
-                        <form method="post" action="<?= $appBasePath ?>/app/finance/income-management.php" class="d-inline">
-                          <?= ispts_csrf_field() ?>
-                          <input type="hidden" name="action" value="mark_income_paid">
-                          <input type="hidden" name="income_id" value="<?= (int) $row['income_id'] ?>">
-                          <button class="btn btn-link p-0 me-1" type="submit" data-bs-toggle="tooltip" data-bs-placement="top" title="Mark Paid">
-                            <span class="fas fa-check-circle text-success"></span>
-                          </button>
-                        </form>
-                      <?php endif; ?>
+
                       <form method="post" action="<?= $appBasePath ?>/app/finance/income-management.php" class="d-inline" onsubmit="return confirm('Deactivate this income record?');">
                         <?= ispts_csrf_field() ?>
                         <input type="hidden" name="action" value="off_income">
@@ -1030,8 +1045,8 @@ require '../../includes/header.php';
                 <strong id="summary-total">0.00</strong>
               </div>
               <div class="d-flex align-items-center justify-content-between mt-2">
-                <label class="form-label fs-11 mb-0" for="discount-amount">Discount</label>
-                <input class="form-control form-control-sm w-50" id="discount-amount" name="discount_amount" type="number" min="0" step="0.01" value="<?= htmlspecialchars((string) $form['discount_amount']) ?>">
+                <label class="form-label mb-0" for="discount-amount">Discount</label>
+                <input class="form-control form-control-sm w-100" id="discount-amount" name="discount_amount" type="number" min="0" step="0.01" style="min-width:80px" value="<?= htmlspecialchars((string) $form['discount_amount']) ?>">
               </div>
               <div class="d-flex justify-content-between mt-2 border-top pt-2">
                 <span>Grand Total</span>
@@ -1068,7 +1083,7 @@ require '../../includes/header.php';
 
           <div class="col-12 d-flex justify-content-end gap-2">
             <a class="btn btn-falcon-default btn-sm" href="<?= $appBasePath ?>/app/finance/income-management.php">Reset</a>
-            <button class="btn btn-primary btn-sm" type="submit">Generate Invoice</button>
+            <button class="btn btn-primary btn-sm" type="submit">Set Payment Paid</button>
           </div>
         </form>
       </div>
