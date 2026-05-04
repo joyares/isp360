@@ -240,7 +240,7 @@ $expenseForm = [
     'vendor_id' => 0,
     'expense_date' => date('Y-m-d'),
     'amount' => '',
-    'payment_method' => 'Cash',
+    'payment_method' => '',
     'note' => '',
     'reference_no' => '',
     'status' => 1,
@@ -534,14 +534,16 @@ $accounts = $pdo->query(
      ORDER BY c.company ASC, fa.account_name ASC"
 )->fetchAll(\PDO::FETCH_ASSOC);
 
-// Default account for new expenses: FO Main Account
+// Default account for new expenses: Friends online bd -fo
 if ($editExpenseId <= 0 && $expenseForm['account_id'] <= 0) {
   foreach ($accounts as $acc) {
-    $companyName = (string)($acc['company'] ?? '');
-    $accName = (string)($acc['account_name'] ?? '');
-    if ((stripos($companyName, 'Friendsonline') !== false || stripos($companyName, 'FO') !== false) 
-        && stripos($accName, 'Main') !== false) {
-      $expenseForm['account_id'] = (int)$acc['account_id'];
+    $companyName = strtolower((string) ($acc['company'] ?? ''));
+    $accName     = strtolower((string) ($acc['account_name'] ?? ''));
+    if (
+      (str_contains($companyName, 'friend') || str_contains($companyName, 'fo'))
+      && str_contains($accName, 'fo')
+    ) {
+      $expenseForm['account_id'] = (int) $acc['account_id'];
       break;
     }
   }
@@ -744,39 +746,36 @@ require '../../includes/header.php';
           <div class="d-flex flex-wrap gap-2">
             <div class="d-flex gap-2 align-items-center">
               <div class="vr rounded ps-1 bg-warning"></div>
-              <h6 class="lh-base text-700 mb-0">This Month: <?= number_format($statExpMonthAmount, 2) ?></h6>
+              <h6 class="lh-base mb-0 text-warning">This Month: <?= number_format($statExpMonthAmount, 0) ?></h6>
             </div>
             <div class="d-flex gap-2 align-items-center">
               <div class="vr rounded ps-1 bg-warning"></div>
-              <h6 class="lh-base text-700 mb-0">Yesterday: <?= number_format($statExpYesterdayAmount, 2) ?></h6>
+              <h6 class="lh-base mb-0 text-warning">Yesterday: <?= number_format($statExpYesterdayAmount, 0) ?></h6>
             </div>
-            <div class="d-flex gap-2 align-items-center">
-              <div class="vr rounded ps-1 bg-warning"></div>
-              <h6 class="lh-base text-700 mb-0">Today: <?= number_format($statExpTodayAmount, 2) ?></h6>
-            </div>
+            
           </div>
         </div>
 
         <div class="d-flex flex-wrap gap-3">
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-success"></div>
-            <h6 class="lh-base text-700 mb-0">Cash: <?= number_format($statExpCash, 2) ?></h6>
+            <h6 class="lh-base text-700 mb-0">Cash: <?= number_format($statExpCash, 0) ?></h6>
           </div>
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-info"></div>
-            <h6 class="lh-base text-700 mb-0">Bkash: <?= number_format($statExpBkash, 2) ?></h6>
+            <h6 class="lh-base text-700 mb-0">Bkash: <?= number_format($statExpBkash, 0) ?></h6>
           </div>
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-warning"></div>
-            <h6 class="lh-base text-700 mb-0">Nagad: <?= number_format($statExpNagad, 2) ?></h6>
+            <h6 class="lh-base text-700 mb-0">Nagad: <?= number_format($statExpNagad, 0) ?></h6>
           </div>
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-primary"></div>
-            <h6 class="lh-base text-700 mb-0">Bank: <?= number_format($statExpBank, 2) ?></h6>
+            <h6 class="lh-base text-700 mb-0">Bank: <?= number_format($statExpBank, 0) ?></h6>
           </div>
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-secondary"></div>
-            <h6 class="lh-base text-700 mb-0">Others: <?= number_format($statExpOther, 2) ?></h6>
+            <h6 class="lh-base text-700 mb-0">Others: <?= number_format($statExpOther, 0) ?></h6>
           </div>
         </div>
       </div>
@@ -799,23 +798,23 @@ require '../../includes/header.php';
         <div class="d-flex flex-wrap gap-3">
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-success"></div>
-            <h6 class="lh-base text-700 mb-0">Cash: <?= number_format($statExpTodayCash, 2) ?></h6>
+            <h6 class="lh-base text-700 mb-0">Cash: <?= number_format($statExpTodayCash, 0) ?></h6>
           </div>
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-info"></div>
-            <h6 class="lh-base text-700 mb-0">Bkash: <?= number_format($statExpTodayBkash, 2) ?></h6>
+            <h6 class="lh-base text-700 mb-0">Bkash: <?= number_format($statExpTodayBkash, 0) ?></h6>
           </div>
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-warning"></div>
-            <h6 class="lh-base text-700 mb-0">Nagad: <?= number_format($statExpTodayNagad, 2) ?></h6>
+            <h6 class="lh-base text-700 mb-0">Nagad: <?= number_format($statExpTodayNagad, 0) ?></h6>
           </div>
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-primary"></div>
-            <h6 class="lh-base text-700 mb-0">Bank: <?= number_format($statExpTodayBank, 2) ?></h6>
+            <h6 class="lh-base text-700 mb-0">Bank: <?= number_format($statExpTodayBank, 0) ?></h6>
           </div>
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-secondary"></div>
-            <h6 class="lh-base text-700 mb-0">Others: <?= number_format($statExpTodayOther, 2) ?></h6>
+            <h6 class="lh-base text-700 mb-0">Others: <?= number_format($statExpTodayOther, 0) ?></h6>
           </div>
         </div>
       </div>
