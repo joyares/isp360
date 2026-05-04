@@ -3,7 +3,9 @@ param(
     [Parameter(Mandatory = $true)][string]$RemoteUser,
     [Parameter(Mandatory = $true)][string]$RemotePath,
     [string]$Branch = 'main',
-    [switch]$RunSeeder
+    [switch]$RunSeeder,
+    [switch]$RunDbImport,
+    [string]$DumpFile = 'database/snapshots/isp360-data.sql.gz'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -16,6 +18,10 @@ $remoteCommand = "cd '$RemotePath'; git fetch origin; git checkout $Branch; git 
 
 if ($RunSeeder) {
     $remoteCommand = "$remoteCommand; php database/seeder.php"
+}
+
+if ($RunDbImport) {
+    $remoteCommand = "$remoteCommand; bash scripts/db-import.sh '$DumpFile'"
 }
 
 Write-Host "[2/3] Pulling latest code on server ($remote) ..."
