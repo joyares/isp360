@@ -869,39 +869,36 @@ require '../../includes/header.php';
           <div class="d-flex flex-wrap gap-2">
             <div class="d-flex gap-2 align-items-center">
               <div class="vr rounded ps-1 bg-warning"></div>
-              <h6 class="lh-base text-700 mb-0">This Month: <?= number_format($statMonthAmount, 2) ?></h6>
+              <h6 class="lh-base text-700 mb-0">This Month: <?= number_format($statMonthAmount, 0) ?></h6>
             </div>
             <div class="d-flex gap-2 align-items-center">
               <div class="vr rounded ps-1 bg-warning"></div>
-              <h6 class="lh-base text-700 mb-0">Yesterday: <?= number_format($statYesterdayAmount, 2) ?></h6>
+              <h6 class="lh-base text-700 mb-0">Yesterday: <?= number_format($statYesterdayAmount, 0) ?></h6>
             </div>
-            <div class="d-flex gap-2 align-items-center">
-              <div class="vr rounded ps-1 bg-warning"></div>
-              <h6 class="lh-base text-700 mb-0">Today: <?= number_format($statTodayAmount, 2) ?></h6>
-            </div>
+            
           </div>
         </div>
 
         <div class="d-flex flex-wrap gap-3">
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-success"></div>
-            <h6 class="lh-base text-700 mb-0">Cash: <?= number_format($statAmountCash, 2) ?></h6>
+            <h6 class="lh-base text-700 mb-0">Cash: <?= number_format($statAmountCash, 0) ?></h6>
           </div>
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-info"></div>
-            <h6 class="lh-base text-700 mb-0">Bkash: <?= number_format($statAmountBkash, 2) ?></h6>
+            <h6 class="lh-base text-700 mb-0">Bkash: <?= number_format($statAmountBkash, 0) ?></h6>
           </div>
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-warning"></div>
-            <h6 class="lh-base text-700 mb-0">Nagad: <?= number_format($statAmountNagad, 2) ?></h6>
+            <h6 class="lh-base text-700 mb-0">Nagad: <?= number_format($statAmountNagad, 0) ?></h6>
           </div>
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-primary"></div>
-            <h6 class="lh-base text-700 mb-0">Bank: <?= number_format($statAmountBank, 2) ?></h6>
+            <h6 class="lh-base text-700 mb-0">Bank: <?= number_format($statAmountBank, 0) ?></h6>
           </div>
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-secondary"></div>
-            <h6 class="lh-base text-700 mb-0">Others: <?= number_format($statAmountOther, 2) ?></h6>
+            <h6 class="lh-base text-700 mb-0">Others: <?= number_format($statAmountOther, 0) ?></h6>
           </div>
         </div>
       </div>
@@ -915,7 +912,7 @@ require '../../includes/header.php';
         <h6>Today's Payments</h6>
         <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 mb-3">
           <div class="display-4 fs-5 mb-0 fw-normal font-sans-serif text-success">
-            <?= number_format($statTotalPaid, 2) ?>
+            <?= number_format($statTodayAmount, 2) ?>
           </div>
 
         </div>
@@ -923,23 +920,23 @@ require '../../includes/header.php';
         <div class="d-flex flex-wrap gap-3">
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-success"></div>
-            <h6 class="lh-base text-700 mb-0">Cash: <?= number_format($statPaidCash, 2) ?></h6>
+            <h6 class="lh-base text-700 mb-0">Cash: <?= number_format($statPaidCash, 0) ?></h6>
           </div>
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-info"></div>
-            <h6 class="lh-base text-700 mb-0">Bkash: <?= number_format($statPaidBkash, 2) ?></h6>
+            <h6 class="lh-base text-700 mb-0">Bkash: <?= number_format($statPaidBkash, 0) ?></h6>
           </div>
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-warning"></div>
-            <h6 class="lh-base text-700 mb-0">Nagad: <?= number_format($statPaidNagad, 2) ?></h6>
+            <h6 class="lh-base text-700 mb-0">Nagad: <?= number_format($statPaidNagad, 0) ?></h6>
           </div>
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-primary"></div>
-            <h6 class="lh-base text-700 mb-0">Bank: <?= number_format($statPaidBank, 2) ?></h6>
+            <h6 class="lh-base text-700 mb-0">Bank: <?= number_format($statPaidBank, 0) ?></h6>
           </div>
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-secondary"></div>
-            <h6 class="lh-base text-700 mb-0">Others: <?= number_format($statPaidOther, 2) ?></h6>
+            <h6 class="lh-base text-700 mb-0">Others: <?= number_format($statPaidOther, 0) ?></h6>
           </div>
         </div>
       </div>
