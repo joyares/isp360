@@ -53,7 +53,7 @@
         });
 
         var card = content.querySelector(':scope > .card, :scope > .row .card');
-        if (!card || card.closest('.dropdown-menu')) return;
+        if (!card || card.closest('.dropdown-menu') || card.hasAttribute('data-no-auto-view')) return;
 
         var sectionActions = [
           {

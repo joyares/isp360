@@ -9127,6 +9127,7 @@ var marketShareInit = function marketShareInit() {
   var $echartMarketShare = document.querySelector(ECHART_MARKET_SHARE);
   if ($echartMarketShare) {
     var userOptions = utils.getData($echartMarketShare, 'options');
+    var dbData = utils.getData($echartMarketShare, 'chart-data');
     var chart = window.echarts.init($echartMarketShare);
     var getDefaultOptions = function getDefaultOptions() {
       return {
@@ -9179,7 +9180,7 @@ var marketShareInit = function marketShareInit() {
               show: false
             }
           },
-          data: [{
+          data: dbData || [{
             value: 5300000,
             name: 'Samsung'
           }, {
@@ -11901,11 +11902,24 @@ var totalSalesInit = function totalSalesInit() {
     return "".concat(months[0], " ").concat(date.getDate(), ", ").concat(value);
   }
   if ($echartsLineTotalSales) {
-    // Get options from data attribute
+    // Get chart data from data attribute (real data from PHP)
+    var dbChartData = utils.getData($echartsLineTotalSales, 'chart-data') || [];
+    
+    // Fallback to hardcoded data if attribute is missing
+    var monthsnumber = dbChartData.length > 0 
+      ? dbChartData.map(function(m) { return m.values; }) 
+      : [[60, 80, 60, 80, 65, 130, 120, 100, 30, 40, 30, 70], [100, 70, 80, 50, 120, 100, 130, 140, 90, 100, 40, 50], [80, 50, 60, 40, 60, 120, 100, 130, 60, 80, 50, 60], [70, 80, 100, 70, 90, 60, 80, 130, 40, 60, 50, 80], [90, 40, 80, 80, 100, 140, 100, 130, 90, 60, 70, 50], [80, 60, 80, 60, 40, 100, 120, 100, 30, 40, 30, 70], [20, 40, 20, 50, 70, 60, 110, 80, 90, 30, 50, 50], [60, 70, 30, 40, 80, 140, 80, 140, 120, 130, 100, 110], [90, 90, 40, 60, 40, 110, 90, 110, 60, 80, 60, 70], [50, 80, 50, 80, 50, 80, 120, 80, 50, 120, 110, 110], [60, 90, 60, 70, 40, 70, 100, 140, 30, 40, 30, 70], [20, 40, 20, 50, 30, 80, 120, 100, 30, 40, 30, 70]];
+    
+    var dbLabels = dbChartData.length > 0 
+      ? dbChartData.map(function(m) { return m.labels; }) 
+      : null;
+
     var userOptions = utils.getData($echartsLineTotalSales, 'options');
     var chart = window.echarts.init($echartsLineTotalSales);
-    var monthsnumber = [[60, 80, 60, 80, 65, 130, 120, 100, 30, 40, 30, 70], [100, 70, 80, 50, 120, 100, 130, 140, 90, 100, 40, 50], [80, 50, 60, 40, 60, 120, 100, 130, 60, 80, 50, 60], [70, 80, 100, 70, 90, 60, 80, 130, 40, 60, 50, 80], [90, 40, 80, 80, 100, 140, 100, 130, 90, 60, 70, 50], [80, 60, 80, 60, 40, 100, 120, 100, 30, 40, 30, 70], [20, 40, 20, 50, 70, 60, 110, 80, 90, 30, 50, 50], [60, 70, 30, 40, 80, 140, 80, 140, 120, 130, 100, 110], [90, 90, 40, 60, 40, 110, 90, 110, 60, 80, 60, 70], [50, 80, 50, 80, 50, 80, 120, 80, 50, 120, 110, 110], [60, 90, 60, 70, 40, 70, 100, 140, 30, 40, 30, 70], [20, 40, 20, 50, 30, 80, 120, 100, 30, 40, 30, 70]];
+    var initialMonth = document.querySelector(SELECT_MONTH) ? document.querySelector(SELECT_MONTH).value : 0;
+    
     var getDefaultOptions = function getDefaultOptions() {
+      var currentLabels = dbLabels ? dbLabels[initialMonth] : ['2019-01-05', '2019-01-06', '2019-01-07', '2019-01-08', '2019-01-09', '2019-01-10', '2019-01-11', '2019-01-12', '2019-01-13', '2019-01-14', '2019-01-15', '2019-01-16'];
       return {
         color: utils.getGrays()['100'],
         tooltip: {
@@ -11927,7 +11941,7 @@ var totalSalesInit = function totalSalesInit() {
         },
         xAxis: {
           type: 'category',
-          data: ['2019-01-05', '2019-01-06', '2019-01-07', '2019-01-08', '2019-01-09', '2019-01-10', '2019-01-11', '2019-01-12', '2019-01-13', '2019-01-14', '2019-01-15', '2019-01-16'],
+          data: currentLabels,
           boundaryGap: false,
           axisPointer: {
             lineStyle: {
@@ -11940,7 +11954,6 @@ var totalSalesInit = function totalSalesInit() {
           },
           axisLine: {
             lineStyle: {
-              // color: utils.getGrays()['300'],
               color: utils.rgbaColor('#000', 0.01),
               type: 'dashed'
             }
@@ -11952,7 +11965,7 @@ var totalSalesInit = function totalSalesInit() {
             color: utils.getGrays()['400'],
             formatter: function formatter(value) {
               var date = new Date(value);
-              return "".concat(months[date.getMonth()], " ").concat(date.getDate());
+              return isNaN(date.getTime()) ? value : "".concat(months[initialMonth], " ").concat(date.getDate());
             },
             margin: 15
           }
@@ -11983,7 +11996,7 @@ var totalSalesInit = function totalSalesInit() {
         },
         series: [{
           type: 'line',
-          data: monthsnumber[0],
+          data: monthsnumber[initialMonth],
           lineStyle: {
             color: utils.getColors().primary
           },
@@ -12030,6 +12043,7 @@ var totalSalesInit = function totalSalesInit() {
       monthSelect.addEventListener('change', function (e) {
         var month = e.currentTarget.value;
         var data = monthsnumber[month];
+        var labels = dbLabels ? dbLabels[month] : ['2019-01-05', '2019-01-06', '2019-01-07', '2019-01-08', '2019-01-09', '2019-01-10', '2019-01-11', '2019-01-12', '2019-01-13', '2019-01-14', '2019-01-15', '2019-01-16'];
         chart.setOption({
           tooltip: {
             formatter: function formatter(params) {
@@ -12037,14 +12051,17 @@ var totalSalesInit = function totalSalesInit() {
                 name = _params$2.name,
                 value = _params$2.value;
               var date = new Date(name);
-              return "".concat(months[month], " ").concat(date.getDate(), ", ").concat(value);
+              var monthName = months[month];
+              var day = isNaN(date.getTime()) ? name : date.getDate();
+              return "".concat(monthName, " ").concat(day, ", ").concat(value);
             }
           },
           xAxis: {
+            data: labels,
             axisLabel: {
               formatter: function formatter(value) {
                 var date = new Date(value);
-                return "".concat(months[month], " ").concat(date.getDate());
+                return isNaN(date.getTime()) ? value : "".concat(months[month], " ").concat(date.getDate());
               },
               margin: 15
             }

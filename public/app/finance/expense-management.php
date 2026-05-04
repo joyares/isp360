@@ -398,8 +398,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                      payment_method = :payment_method,
                      note = :note,
                      reference_no = :reference_no,
-                     update_count = update_count + 1,
-                     status = :status
+                     update_count = update_count + 1
                    WHERE expense_id = :expense_id'
                 );
 
@@ -413,7 +412,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $updateStmt->bindValue(':payment_method', $paymentMethod);
                 $updateStmt->bindValue(':note', $expenseForm['note'] !== '' ? $expenseForm['note'] : null, \PDO::PARAM_STR);
                 $updateStmt->bindValue(':reference_no', $expenseForm['reference_no'] !== '' ? $expenseForm['reference_no'] : null, \PDO::PARAM_STR);
-                $updateStmt->bindValue(':status', (int) $expenseForm['status'], \PDO::PARAM_INT);
                 $updateStmt->bindValue(':expense_id', $expenseId, \PDO::PARAM_INT);
                 $updateStmt->execute();
               } else {
@@ -431,8 +429,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     note,
                     reference_no,
                     created_by_user_id,
-                    created_by_name,
-                    status
+                    created_by_name
                   ) VALUES (
                     :trx_id,
                     :account_id,
@@ -446,8 +443,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     :note,
                     :reference_no,
                     :created_by_user_id,
-                    :created_by_name,
-                    :status
+                    :created_by_name
                   )'
                 );
 
@@ -475,7 +471,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $insertStmt->bindValue(':reference_no', $expenseForm['reference_no'] !== '' ? $expenseForm['reference_no'] : null, \PDO::PARAM_STR);
                 $insertStmt->bindValue(':created_by_user_id', $createdByUserId > 0 ? $createdByUserId : null, \PDO::PARAM_INT);
                 $insertStmt->bindValue(':created_by_name', $createdByName, \PDO::PARAM_STR);
-                $insertStmt->bindValue(':status', (int) $expenseForm['status'], \PDO::PARAM_INT);
                 $insertStmt->execute();
               }
 
@@ -527,7 +522,6 @@ if ($editExpenseId > 0) {
       'payment_method' => (string) $editRow['payment_method'],
       'note' => (string) ($editRow['note'] ?? ''),
       'reference_no' => (string) ($editRow['reference_no'] ?? ''),
-      'status' => (int) $editRow['status'],
     ];
   }
 }
@@ -539,6 +533,19 @@ $accounts = $pdo->query(
      WHERE fa.status = 1
      ORDER BY c.company ASC, fa.account_name ASC"
 )->fetchAll(\PDO::FETCH_ASSOC);
+
+// Default account for new expenses: FO Main Account
+if ($editExpenseId <= 0 && $expenseForm['account_id'] <= 0) {
+  foreach ($accounts as $acc) {
+    $companyName = (string)($acc['company'] ?? '');
+    $accName = (string)($acc['account_name'] ?? '');
+    if ((stripos($companyName, 'Friendsonline') !== false || stripos($companyName, 'FO') !== false) 
+        && stripos($accName, 'Main') !== false) {
+      $expenseForm['account_id'] = (int)$acc['account_id'];
+      break;
+    }
+  }
+}
 
 $categories = $pdo->query(
     'SELECT category_id, category_name
@@ -566,47 +573,80 @@ $perPageRaw = (int) ($_GET['per_page'] ?? 10);
 $perPage = in_array($perPageRaw, $perPageOptions, true) ? $perPageRaw : 10;
 $currentPage = max(1, (int) ($_GET['page'] ?? 1));
 
+$viewAll = (isset($_GET['view_all']) && $_GET['view_all'] === '1');
 $filterDateFrom = trim((string) ($_GET['date_from'] ?? ''));
 $filterDateTo   = trim((string) ($_GET['date_to']   ?? ''));
+
+if (!$viewAll && $filterDateFrom === '' && $filterDateTo === '') {
+  $filterDateFrom = date('Y-m-d');
+  $filterDateTo = date('Y-m-d');
+}
+
 $filterDateFrom = (strlen($filterDateFrom) === 10 && strtotime($filterDateFrom) !== false) ? $filterDateFrom : '';
 $filterDateTo   = (strlen($filterDateTo)   === 10 && strtotime($filterDateTo)   !== false) ? $filterDateTo   : '';
 
 $dateWhere      = '';
 $countDateWhere = '';
-if ($filterDateFrom !== '' && $filterDateTo !== '') {
-  $dateWhere      = ' AND fe.expense_date BETWEEN :date_from AND :date_to';
-  $countDateWhere = ' AND expense_date BETWEEN :date_from AND :date_to';
-} elseif ($filterDateFrom !== '') {
-  $dateWhere      = ' AND fe.expense_date >= :date_from';
-  $countDateWhere = ' AND expense_date >= :date_from';
-} elseif ($filterDateTo !== '') {
-  $dateWhere      = ' AND fe.expense_date <= :date_to';
-  $countDateWhere = ' AND expense_date <= :date_to';
+if (!$viewAll) {
+  if ($filterDateFrom !== '' && $filterDateTo !== '') {
+    $dateWhere      = ' AND fe.expense_date BETWEEN :date_from AND :date_to';
+    $countDateWhere = ' AND expense_date BETWEEN :date_from AND :date_to';
+  } elseif ($filterDateFrom !== '') {
+    $dateWhere      = ' AND fe.expense_date >= :date_from';
+    $countDateWhere = ' AND expense_date >= :date_from';
+  } elseif ($filterDateTo !== '') {
+    $dateWhere      = ' AND fe.expense_date <= :date_to';
+    $countDateWhere = ' AND expense_date <= :date_to';
+  }
 }
 
-$expCountStmt = $pdo->prepare('SELECT COUNT(*) FROM finance_expenses WHERE status = 1' . $countDateWhere);
-if ($filterDateFrom !== '') { $expCountStmt->bindValue(':date_from', $filterDateFrom); }
-if ($filterDateTo   !== '') { $expCountStmt->bindValue(':date_to',   $filterDateTo); }
+$expCountStmt = $pdo->prepare('SELECT COUNT(*) FROM finance_expenses WHERE 1=1' . $countDateWhere);
+if (!$viewAll && $filterDateFrom !== '') { $expCountStmt->bindValue(':date_from', $filterDateFrom); }
+if (!$viewAll && $filterDateTo   !== '') { $expCountStmt->bindValue(':date_to',   $filterDateTo); }
 $expCountStmt->execute();
 $totalExpenseCount = (int) $expCountStmt->fetchColumn();
 
 $expStatsRow = $pdo->query(
   "SELECT
-     COALESCE(SUM(amount), 0) AS total_amount,
-     COALESCE(SUM(CASE WHEN payment_method = 'Cash'  THEN amount ELSE 0 END), 0) AS total_cash,
-     COALESCE(SUM(CASE WHEN payment_method = 'Bkash' THEN amount ELSE 0 END), 0) AS total_bkash,
-     COALESCE(SUM(CASE WHEN payment_method = 'Nagad' THEN amount ELSE 0 END), 0) AS total_nagad,
-     COALESCE(SUM(CASE WHEN payment_method = 'Bank'  THEN amount ELSE 0 END), 0) AS total_bank,
-     COALESCE(SUM(CASE WHEN payment_method NOT IN ('Cash','Bkash','Nagad','Bank') THEN amount ELSE 0 END), 0) AS total_other
-   FROM finance_expenses
-   WHERE status = 1"
+     COUNT(*) AS total_count,
+     SUM(amount) AS total_amount,
+     SUM(CASE WHEN expense_date >= DATE_FORMAT(CURRENT_DATE, '%Y-%m-01') THEN 1 ELSE 0 END) AS month_count,
+     SUM(CASE WHEN expense_date >= DATE_FORMAT(CURRENT_DATE, '%Y-%m-01') THEN amount ELSE 0 END) AS month_amount,
+     SUM(CASE WHEN expense_date = DATE_SUB(CURRENT_DATE, INTERVAL 1 DAY) THEN 1 ELSE 0 END) AS yesterday_count,
+     SUM(CASE WHEN expense_date = DATE_SUB(CURRENT_DATE, INTERVAL 1 DAY) THEN amount ELSE 0 END) AS yesterday_amount,
+     SUM(CASE WHEN expense_date = CURRENT_DATE THEN 1 ELSE 0 END) AS today_count,
+     SUM(CASE WHEN expense_date = CURRENT_DATE THEN amount ELSE 0 END) AS today_amount,
+     SUM(CASE WHEN expense_date = CURRENT_DATE AND payment_method = 'Cash'  THEN amount ELSE 0 END) AS today_cash,
+     SUM(CASE WHEN expense_date = CURRENT_DATE AND payment_method = 'Bkash' THEN amount ELSE 0 END) AS today_bkash,
+     SUM(CASE WHEN expense_date = CURRENT_DATE AND payment_method = 'Nagad' THEN amount ELSE 0 END) AS today_nagad,
+     SUM(CASE WHEN expense_date = CURRENT_DATE AND payment_method = 'Bank'  THEN amount ELSE 0 END) AS today_bank,
+     SUM(CASE WHEN expense_date = CURRENT_DATE AND payment_method NOT IN ('Cash','Bkash','Nagad','Bank') THEN amount ELSE 0 END) AS today_other,
+     SUM(CASE WHEN payment_method = 'Cash'  THEN amount ELSE 0 END) AS total_cash,
+     SUM(CASE WHEN payment_method = 'Bkash' THEN amount ELSE 0 END) AS total_bkash,
+     SUM(CASE WHEN payment_method = 'Nagad' THEN amount ELSE 0 END) AS total_nagad,
+     SUM(CASE WHEN payment_method = 'Bank'  THEN amount ELSE 0 END) AS total_bank,
+     SUM(CASE WHEN payment_method NOT IN ('Cash','Bkash','Nagad','Bank') THEN amount ELSE 0 END) AS total_other
+   FROM finance_expenses"
 )->fetch(\PDO::FETCH_ASSOC);
-$statExpTotal  = (float) ($expStatsRow['total_amount'] ?? 0);
-$statExpCash   = (float) ($expStatsRow['total_cash']   ?? 0);
-$statExpBkash  = (float) ($expStatsRow['total_bkash']  ?? 0);
-$statExpNagad  = (float) ($expStatsRow['total_nagad']  ?? 0);
-$statExpBank   = (float) ($expStatsRow['total_bank']   ?? 0);
-$statExpOther  = (float) ($expStatsRow['total_other']  ?? 0);
+
+$statExpTotalCount     = (int)   ($expStatsRow['total_count']       ?? 0);
+$statExpTotalAmount    = (float) ($expStatsRow['total_amount']      ?? 0);
+$statExpMonthCount     = (int)   ($expStatsRow['month_count']       ?? 0);
+$statExpMonthAmount    = (float) ($expStatsRow['month_amount']      ?? 0);
+$statExpYesterdayCount = (int)   ($expStatsRow['yesterday_count']   ?? 0);
+$statExpYesterdayAmount= (float) ($expStatsRow['yesterday_amount']  ?? 0);
+$statExpTodayCount     = (int)   ($expStatsRow['today_count']       ?? 0);
+$statExpTodayAmount    = (float) ($expStatsRow['today_amount']      ?? 0);
+$statExpTodayCash      = (float) ($expStatsRow['today_cash']        ?? 0);
+$statExpTodayBkash     = (float) ($expStatsRow['today_bkash']       ?? 0);
+$statExpTodayNagad     = (float) ($expStatsRow['today_nagad']       ?? 0);
+$statExpTodayBank      = (float) ($expStatsRow['today_bank']        ?? 0);
+$statExpTodayOther     = (float) ($expStatsRow['today_other']       ?? 0);
+$statExpCash           = (float) ($expStatsRow['total_cash']        ?? 0);
+$statExpBkash          = (float) ($expStatsRow['total_bkash']       ?? 0);
+$statExpNagad          = (float) ($expStatsRow['total_nagad']       ?? 0);
+$statExpBank           = (float) ($expStatsRow['total_bank']        ?? 0);
+$statExpOther          = (float) ($expStatsRow['total_other']       ?? 0);
 
 $totalPages = $totalExpenseCount > 0 ? (int) ceil($totalExpenseCount / $perPage) : 1;
 $currentPage = min($currentPage, $totalPages);
@@ -619,7 +659,6 @@ $expListStmt = $pdo->prepare(
             fe.amount,
             fe.payment_method,
             fe.reference_no,
-            fe.status,
             fe.created_by_name,
             fa.account_name,
             c.company,
@@ -632,14 +671,14 @@ $expListStmt = $pdo->prepare(
      LEFT JOIN expense_categories ec ON ec.category_id = fe.category_id
      LEFT JOIN expense_sub_categories esc ON esc.sub_category_id = fe.sub_category_id
      LEFT JOIN inventory_vendors iv ON iv.vendor_id = fe.vendor_id
-     WHERE fe.status = 1' . $dateWhere . '
+     WHERE 1=1' . $dateWhere . '
      ORDER BY fe.expense_date DESC, fe.expense_id DESC
      LIMIT :limit OFFSET :offset'
 );
 $expListStmt->bindValue(':limit', $perPage, PDO::PARAM_INT);
 $expListStmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-if ($filterDateFrom !== '') { $expListStmt->bindValue(':date_from', $filterDateFrom); }
-if ($filterDateTo   !== '') { $expListStmt->bindValue(':date_to',   $filterDateTo); }
+if (!$viewAll && $filterDateFrom !== '') { $expListStmt->bindValue(':date_from', $filterDateFrom); }
+if (!$viewAll && $filterDateTo   !== '') { $expListStmt->bindValue(':date_to',   $filterDateTo); }
 $expListStmt->execute();
 $expenses = $expListStmt->fetchAll(\PDO::FETCH_ASSOC);
 
@@ -669,30 +708,55 @@ require '../../includes/header.php';
 <?php endif; ?>
 
 <div class="row g-3 mb-3">
-  <div class="col-sm-6 col-md-3">
-    <div class="card overflow-hidden h-100">
-      <div class="bg-holder bg-card" style="background-image:url(<?= $appBasePath ?>/assets/img/icons/spot-illustrations/corner-1.png);"></div>
+  <!-- Total Expenses -->
+  <div class="col-sm-12 col-md-2">
+    <div class="card h-100" data-no-auto-view="true">
+      <div class="bg-holder bg-card"
+        style="background-image:url(<?= $appBasePath ?>/assets/img/icons/spot-illustrations/corner-1.png);"></div>
       <div class="card-body position-relative">
         <h6>Total Expenses</h6>
-        <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-warning"><?= number_format($totalExpenseCount) ?></div>
+        <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-warning"><?= number_format($statExpTotalCount) ?></div>
+        <div class="d-flex flex-wrap gap-2">
+          <div class="d-flex gap-2 align-items-center">
+            <div class="vr rounded ps-1 bg-info"></div>
+            <h6 class="lh-base text-700 mb-0">Yesterday: <?= number_format($statExpYesterdayCount) ?></h6>
+          </div>
+          <div class="d-flex gap-2 align-items-center">
+            <div class="vr rounded ps-1 bg-success"></div>
+            <h6 class="lh-base text-700 mb-0">Today: <?= number_format($statExpTodayCount) ?></h6>
+          </div>
+        </div>
       </div>
     </div>
   </div>
-  <div class="col-sm-6 col-md-3">
-    <div class="card overflow-hidden h-100">
-      <div class="bg-holder bg-card" style="background-image:url(<?= $appBasePath ?>/assets/img/icons/spot-illustrations/corner-2.png);"></div>
+
+  <!-- Total Expense Amount -->
+  <div class="col-sm-12 col-md-5">
+    <div class="card h-100" data-no-auto-view="true">
+      <div class="bg-holder bg-card"
+        style="background-image:url(<?= $appBasePath ?>/assets/img/icons/spot-illustrations/corner-2.png);"></div>
       <div class="card-body position-relative">
-        <h6>Total Invoice Amount</h6>
-        <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-warning"><?= number_format($statExpTotal, 2) ?></div>
-      </div>
-    </div>
-  </div>
-  <div class="col-sm-12 col-md-6">
-    <div class="card overflow-hidden h-100">
-      <div class="bg-holder bg-card" style="background-image:url(<?= $appBasePath ?>/assets/img/icons/spot-illustrations/corner-3.png);"></div>
-      <div class="card-body position-relative">
-        <h6>Total Payments</h6>
-        <div class="display-4 fs-5 mb-2 fw-normal font-sans-serif text-success"><?= number_format($statExpTotal, 2) ?></div>
+        <h6>Total Expense Amount</h6>
+        <div class="d-flex flex-column flex-md-row align-items-md-center gap-2 mb-3">
+          <div class="display-4 fs-5 mb-0 fw-normal font-sans-serif text-warning" style="margin-right: 20px;">
+            <?= number_format($statExpTotalAmount, 2) ?>
+          </div>
+          <div class="d-flex flex-wrap gap-2">
+            <div class="d-flex gap-2 align-items-center">
+              <div class="vr rounded ps-1 bg-warning"></div>
+              <h6 class="lh-base text-700 mb-0">This Month: <?= number_format($statExpMonthAmount, 2) ?></h6>
+            </div>
+            <div class="d-flex gap-2 align-items-center">
+              <div class="vr rounded ps-1 bg-warning"></div>
+              <h6 class="lh-base text-700 mb-0">Yesterday: <?= number_format($statExpYesterdayAmount, 2) ?></h6>
+            </div>
+            <div class="d-flex gap-2 align-items-center">
+              <div class="vr rounded ps-1 bg-warning"></div>
+              <h6 class="lh-base text-700 mb-0">Today: <?= number_format($statExpTodayAmount, 2) ?></h6>
+            </div>
+          </div>
+        </div>
+
         <div class="d-flex flex-wrap gap-3">
           <div class="d-flex gap-2 align-items-center">
             <div class="vr rounded ps-1 bg-success"></div>
@@ -718,6 +782,45 @@ require '../../includes/header.php';
       </div>
     </div>
   </div>
+
+  <!-- Today's Expenses -->
+  <div class="col-sm-12 col-md-5">
+    <div class="card h-100" data-no-auto-view="true">
+      <div class="bg-holder bg-card"
+        style="background-image:url(<?= $appBasePath ?>/assets/img/icons/spot-illustrations/corner-3.png);"></div>
+      <div class="card-body position-relative">
+        <h6>Today's Expenses</h6>
+        <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 mb-3">
+          <div class="display-4 fs-5 mb-0 fw-normal font-sans-serif text-success">
+            <?= number_format($statExpTodayAmount, 2) ?>
+          </div>
+        </div>
+
+        <div class="d-flex flex-wrap gap-3">
+          <div class="d-flex gap-2 align-items-center">
+            <div class="vr rounded ps-1 bg-success"></div>
+            <h6 class="lh-base text-700 mb-0">Cash: <?= number_format($statExpTodayCash, 2) ?></h6>
+          </div>
+          <div class="d-flex gap-2 align-items-center">
+            <div class="vr rounded ps-1 bg-info"></div>
+            <h6 class="lh-base text-700 mb-0">Bkash: <?= number_format($statExpTodayBkash, 2) ?></h6>
+          </div>
+          <div class="d-flex gap-2 align-items-center">
+            <div class="vr rounded ps-1 bg-warning"></div>
+            <h6 class="lh-base text-700 mb-0">Nagad: <?= number_format($statExpTodayNagad, 2) ?></h6>
+          </div>
+          <div class="d-flex gap-2 align-items-center">
+            <div class="vr rounded ps-1 bg-primary"></div>
+            <h6 class="lh-base text-700 mb-0">Bank: <?= number_format($statExpTodayBank, 2) ?></h6>
+          </div>
+          <div class="d-flex gap-2 align-items-center">
+            <div class="vr rounded ps-1 bg-secondary"></div>
+            <h6 class="lh-base text-700 mb-0">Others: <?= number_format($statExpTodayOther, 2) ?></h6>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="row gx-3 gy-3">
@@ -727,9 +830,18 @@ require '../../includes/header.php';
       <div class="card-header border-bottom border-200 d-flex align-items-center justify-content-between flex-wrap gap-2">
         <h6 class="mb-0">Expense List <span class="text-600 fw-normal fs-11">(<?= $totalExpenseCount ?> total)</span></h6>
         <form method="get" action="<?= $appBasePath ?>/app/finance/expense-management.php" class="d-flex align-items-center flex-wrap gap-2" id="expense-filter-form">
+          <div class="form-check form-check-inline mb-0 ms-2">
+            <input class="form-check-input" type="radio" name="view_all" id="viewAllFalse" value="0" <?= !$viewAll ? 'checked' : '' ?> onchange="this.form.submit()">
+            <label class="form-check-label fs-11" for="viewAllFalse">Filter</label>
+          </div>
+          <div class="form-check form-check-inline mb-0 me-2">
+            <input class="form-check-input" type="radio" name="view_all" id="viewAllTrue" value="1" <?= $viewAll ? 'checked' : '' ?> onchange="this.form.submit()">
+            <label class="form-check-label fs-11" for="viewAllTrue">All</label>
+          </div>
           <input type="text" class="form-control form-control-sm datetimepicker" id="expense-date-range" name="_date_range" placeholder="Date range" style="width:200px;"
             data-options='{"mode":"range","dateFormat":"Y-m-d","disableMobile":true,"position":"below"}'
-            value="<?= $filterDateFrom !== '' ? htmlspecialchars($filterDateFrom . ($filterDateTo !== '' ? ' to ' . $filterDateTo : '')) : '' ?>">
+            value="<?= $filterDateFrom !== '' ? htmlspecialchars($filterDateFrom . ($filterDateTo !== '' ? ' to ' . $filterDateTo : '')) : '' ?>"
+            <?= $viewAll ? 'disabled' : '' ?>>
           <input type="hidden" name="date_from" id="expense-date-from" value="<?= htmlspecialchars($filterDateFrom) ?>">
           <input type="hidden" name="date_to"   id="expense-date-to"   value="<?= htmlspecialchars($filterDateTo) ?>">
           <?php if ($filterDateFrom !== '' || $filterDateTo !== ''): ?>
@@ -760,12 +872,11 @@ require '../../includes/header.php';
                 <th class="text-800">Method</th>
                 <th class="text-800">Reference</th>
                 <th class="text-800">Created By</th>
-                <th class="text-800">Status</th>
               </tr>
             </thead>
             <tbody>
               <?php if (empty($expenses)): ?>
-                <tr><td colspan="13" class="text-center py-3 text-600">No expense records found.</td></tr>
+                <tr><td colspan="12" class="text-center py-3 text-600">No expense records found.</td></tr>
               <?php else: ?>
                 <?php foreach ($expenses as $row): ?>
                   <tr>
@@ -783,7 +894,6 @@ require '../../includes/header.php';
                     <td><?= htmlspecialchars((string) $row['payment_method']) ?></td>
                     <td><?= htmlspecialchars((string) ($row['reference_no'] ?? '-')) ?></td>
                     <td><?= htmlspecialchars((string) ($row['created_by_name'] ?? '-')) ?></td>
-                    <td><?= (int) $row['status'] === 1 ? '<span class="badge badge-subtle-success">On</span>' : '<span class="badge badge-subtle-danger">Off</span>' ?></td>
                   </tr>
                 <?php endforeach; ?>
               <?php endif; ?>
@@ -819,8 +929,8 @@ require '../../includes/header.php';
           <input type="hidden" name="action" value="save_expense">
           <input type="hidden" name="expense_id" value="<?= (int) $expenseForm['expense_id'] ?>">
 
-          <div class="col-12">
-            <label class="form-label" for="expense-account">Select account</label>
+          <div class="col-md-6">
+           
             <select class="form-select" id="expense-account" name="account_id" required>
               <option value="" disabled <?= (int) $expenseForm['account_id'] <= 0 ? 'selected' : '' ?>>Select account</option>
               <?php foreach ($accounts as $account): ?>
@@ -830,9 +940,14 @@ require '../../includes/header.php';
               <?php endforeach; ?>
             </select>
           </div>
+          <div class="col-md-6">
+           
+            <input class="form-control" id="expense-date" name="expense_date" type="date" value="<?= htmlspecialchars((string) $expenseForm['expense_date']) ?>" required>
+          </div>
 
-          <div class="col-12">
-            <label class="form-label" for="expense-category">Select expense category</label>
+
+          <div class="col-md-6">
+            
             <select class="form-select" id="expense-category" name="category_id" required>
               <option value="" disabled <?= (int) $expenseForm['category_id'] <= 0 ? 'selected' : '' ?>>Select category</option>
               <?php foreach ($categories as $category): ?>
@@ -843,8 +958,8 @@ require '../../includes/header.php';
             </select>
           </div>
 
-          <div class="col-12">
-            <label class="form-label" for="expense-sub-category">Select expense sub category</label>
+          <div class="col-md-6">
+            
             <select class="form-select" id="expense-sub-category" name="sub_category_id" required>
               <option value="" disabled <?= (int) $expenseForm['sub_category_id'] <= 0 ? 'selected' : '' ?>>Select sub category</option>
               <?php foreach ($subCategories as $subCategory): ?>
@@ -876,20 +991,14 @@ require '../../includes/header.php';
             </div>
           </div>
 
+          
           <div class="col-12">
-            <label class="form-label" for="expense-date">Date</label>
-            <input class="form-control" id="expense-date" name="expense_date" type="date" value="<?= htmlspecialchars((string) $expenseForm['expense_date']) ?>" required>
+            <input class="form-control" id="expense-amount" name="amount" type="number" min="0" step="0.01" value="<?= htmlspecialchars((string) $expenseForm['amount']) ?>" placeholder="0.00" required>
           </div>
 
           <div class="col-12">
-            <label class="form-label" for="expense-amount">Amount</label>
-            <input class="form-control" id="expense-amount" name="amount" type="number" min="0" step="0.01" value="<?= htmlspecialchars((string) $expenseForm['amount']) ?>" required>
-          </div>
-
-          <div class="col-12">
-            <label class="form-label" for="expense-payment-method">Payment Method</label>
             <select class="form-select" id="expense-payment-method" name="payment_method" required>
-              <option value="" disabled>Select payment method</option>
+              <option value="" disabled <?= $expenseForm['payment_method'] === '' ? 'selected' : '' ?>>Select payment method</option>
               <?php foreach ($paymentMethods as $method): ?>
                 <option value="<?= htmlspecialchars($method) ?>" <?= (string) $expenseForm['payment_method'] === $method ? 'selected' : '' ?>>
                   <?= htmlspecialchars($method) ?>
@@ -898,24 +1007,17 @@ require '../../includes/header.php';
             </select>
           </div>
 
-          <div class="col-12">
-            <label class="form-label" for="expense-note">Note</label>
-            <textarea class="form-control" id="expense-note" name="note" rows="2"><?= htmlspecialchars((string) $expenseForm['note']) ?></textarea>
+          <div class="col-md-6">
+            
+            <input class="form-control" id="expense-reference" name="reference_no" type="text" value="<?= htmlspecialchars((string) $expenseForm['reference_no']) ?>" placeholder="Reference/Employee">
           </div>
 
-          <div class="col-12">
-            <label class="form-label" for="expense-reference">Reference</label>
-            <input class="form-control" id="expense-reference" name="reference_no" type="text" value="<?= htmlspecialchars((string) $expenseForm['reference_no']) ?>">
+          <div class="col-md-6">
+          
+            <textarea class="form-control" id="expense-note" name="note" rows="1" placeholder="Notes"><?= htmlspecialchars((string) $expenseForm['note']) ?></textarea>
           </div>
 
-          <div class="col-12">
-            <div class="d-flex align-items-center justify-content-between">
-              <label class="form-label mb-0" for="expense-status">Status</label>
-              <div class="form-check form-switch m-0">
-                <input class="form-check-input" id="expense-status" type="checkbox" name="status" value="1" <?= (int) $expenseForm['status'] === 1 ? 'checked' : '' ?>>
-              </div>
-            </div>
-          </div>
+          
 
           <div class="col-12 d-flex justify-content-end gap-2">
             <a class="btn btn-falcon-default btn-sm" href="<?= $appBasePath ?>/app/finance/expense-management.php">Reset</a>
