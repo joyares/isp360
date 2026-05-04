@@ -66,14 +66,62 @@ if ($dbPass -ne "") {
     $mysqlArgs += "--password=$dbPass"
 }
 
+function Test-MySqlConnection {
+    param(
+        [string]$DbHost,
+        [string]$DbPort,
+        [string]$DbUser,
+        [string]$DbPass
+    )
+
+    $args = @(
+        "--host=$DbHost",
+        "--port=$DbPort",
+        "--user=$DbUser"
+    )
+
+    if ($DbPass -ne "") {
+        $args += "--password=$DbPass"
+    }
+
+    & $mysql $args -e "SELECT 1" > $null
+    if ($LASTEXITCODE -eq 0) {
+        return $args
+    }
+
+    return $null
+}
+
 Write-Host "Connecting to MySQL on $dbHost`:$dbPort..."
-# Simple check to see if we can connect
-& $mysql $mysqlArgs -e "SELECT 1" > $null
-if ($LASTEXITCODE -ne 0) {
+$connectedArgs = Test-MySqlConnection -DbHost $dbHost -DbPort $dbPort -DbUser $dbUser -DbPass $dbPass
+
+if ($null -eq $connectedArgs) {
+    $fallbackHost = $null
+    if ($dbHost -eq "127.0.0.1") {
+        $fallbackHost = "localhost"
+    } elseif ($dbHost -eq "localhost") {
+        $fallbackHost = "127.0.0.1"
+    }
+
+    if ($fallbackHost) {
+        Write-Host "Primary host failed. Retrying with $fallbackHost`:$dbPort..."
+        $connectedArgs = Test-MySqlConnection -DbHost $fallbackHost -DbPort $dbPort -DbUser $dbUser -DbPass $dbPass
+        if ($null -ne $connectedArgs) {
+            $dbHost = $fallbackHost
+            $mysqlArgs = $connectedArgs
+            Write-Host "Connected successfully using $dbHost`:$dbPort." -ForegroundColor Yellow
+        }
+    }
+}
+
+if ($null -eq $connectedArgs) {
     Write-Host "Error: Could not connect to MySQL server at $dbHost`:$dbPort." -ForegroundColor Red
-    Write-Host "Please ensure Laragon/MySQL is running."
+    Write-Host "Please ensure Laragon/MySQL is running and DB_HOST/DB_PORT in .env are correct."
+    Write-Host "Tip: In Laragon, click Start All, then retry this script."
     exit 1
 }
+
+$mysqlArgs = $connectedArgs
 
 $dropCreateSql = "DROP DATABASE IF EXISTS ``$dbName``; CREATE DATABASE ``$dbName`` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 & $mysql $mysqlArgs -e $dropCreateSql
